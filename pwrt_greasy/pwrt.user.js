@@ -1318,8 +1318,33 @@
       </div>
     `;
 
-    // Insert bar as the very first child of <body> so it always appears at the top
-    document.body.prepend(bar);
+    // Insert bar inside the Torn content area, below the top stats bar but above
+    // the "Faction" heading. Try several known Torn DOM anchors in priority order.
+    // The stats/status bar sits in #top-page-links-list / .user-information / #bar-exterior.
+    // The faction content starts at #faction-main or .faction-main or h4.title.
+    // Strategy: find the faction heading or content root, insert bar before it.
+    function insertBar() {
+      // Torn wraps page content in .content-wrapper > .content
+      // The faction page heading is typically an <h4> with class 'title' inside .content
+      const anchors = [
+        // Faction heading
+        document.querySelector('#faction-main h4.title'),
+        document.querySelector('#faction-main .title'),
+        document.querySelector('.content-title'),
+        document.querySelector('#faction-main'),
+        // Generic Torn content container
+        document.querySelector('#mainContainer'),
+        document.querySelector('.content'),
+      ];
+      const anchor = anchors.find(el => el != null);
+      if (anchor) {
+        anchor.insertAdjacentElement('beforebegin', bar);
+      } else {
+        // Fallback: put it at the very start of body
+        document.body.prepend(bar);
+      }
+    }
+    insertBar();
 
     // Auto-expand on first install so the user sees the setup prompt
     if (isFirstRun) {
