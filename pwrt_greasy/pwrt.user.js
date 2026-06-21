@@ -1345,23 +1345,74 @@
     }
 
     document.getElementById('pwrt-run-btn').addEventListener('click', async () => {
-      const pdaKeyNow = getPDAApiKey();
-      const key       = pdaKeyNow ?? (document.getElementById('pwrt-key-input')?.value.trim() ?? '');
-      const dateStr = document.getElementById('pwrt-date-input').value.trim();
+      const runBtn    = document.getElementById('pwrt-run-btn');
+      const loadingEl = document.getElementById('pwrt-loading-overlay');
 
+      // ── Helper: show error INSIDE the full-screen loading overlay ──────────
+      function showLoadingErr(msg) {
+        const errEl   = document.getElementById('pwrt-loading-err');
+        const titleEl = document.getElementById('pwrt-loading-title');
+        const spinner = document.getElementById('pwrt-loading-spinner');
+        const closeBtn= document.getElementById('pwrt-loading-close');
+        const statusEl= document.getElementById('pwrt-loading-status');
+        if (errEl)    { errEl.innerHTML = msg; errEl.style.display = 'block'; }
+        if (titleEl)  titleEl.textContent = '⚠ Failed';
+        if (spinner)  spinner.style.display = 'none';
+        if (statusEl) statusEl.style.display = 'none';
+        if (closeBtn) {
+          closeBtn.style.display = 'inline-block';
+          closeBtn.onclick = function() {
+            if (loadingEl) loadingEl.style.display = 'none';
+            if (errEl)    { errEl.style.display = 'none'; errEl.textContent = ''; }
+            if (titleEl)  titleEl.textContent = 'Generating report…';
+            if (spinner)  spinner.style.display = 'block';
+            if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = 'Querying the Torn API…'; }
+            if (closeBtn) closeBtn.style.display = 'none';
+          };
+        }
+        runBtn.disabled = false;
+      }
+
+      // ── Show loading overlay IMMEDIATELY – always, before any validation ───
       clearMessages();
+      runBtn.disabled = true;
+      if (loadingEl) {
+        // Reset to clean state in case of previous error
+        const errEl   = document.getElementById('pwrt-loading-err');
+        const titleEl = document.getElementById('pwrt-loading-title');
+        const spinner = document.getElementById('pwrt-loading-spinner');
+        const closeBtn= document.getElementById('pwrt-loading-close');
+        const statusEl= document.getElementById('pwrt-loading-status');
+        if (errEl)    { errEl.style.display = 'none'; errEl.textContent = ''; }
+        if (titleEl)  titleEl.textContent = 'Generating report…';
+        if (spinner)  spinner.style.display = 'block';
+        if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = 'Validating inputs…'; }
+        if (closeBtn) closeBtn.style.display = 'none';
+        loadingEl.style.display = 'flex';
+      }
 
-      if (!key) { showErr('Please enter an API key.'); return; }
-      if (!dateStr) { showErr('Please enter a date.'); return; }
-      if (!/^\d{2}\.\d{2}\.\d{4}$/.test(dateStr)) { showErr('Invalid date format. Use DD.MM.YYYY.'); return; }
+      // ── Validation ────────────────────────────────────────────────────────
+      const pdaKeyNow = getPDAApiKey();
+      const keyInput  = document.getElementById('pwrt-key-input');
+      const key       = pdaKeyNow || (keyInput ? keyInput.value.trim() : '');
+      const dateStr   = (document.getElementById('pwrt-date-input')?.value ?? '').trim();
+
+      if (!key) {
+        showLoadingErr('No API key found.<br>Enter your Torn API key in the input field and click <em>Save Key</em> first.');
+        return;
+      }
+      if (!dateStr) {
+        showLoadingErr('Please enter a date (DD.MM.YYYY).');
+        return;
+      }
+      if (!/^\d{2}\.\d{2}\.\d{4}$/.test(dateStr)) {
+        showLoadingErr('Invalid date format — please use <strong>DD.MM.YYYY</strong>.<br>Got: ' + dateStr);
+        return;
+      }
 
       storeSet(DATE_STORE, dateStr);
 
-      const runBtn    = document.getElementById('pwrt-run-btn');
-      const loadingEl = document.getElementById('pwrt-loading-overlay');
-      runBtn.disabled = true;
-      if (loadingEl) { loadingEl.style.display = 'flex'; }
-
+      // ── Run report ────────────────────────────────────────────────────────
       let reportOk = false;
       try {
         const html = await runReport(key, dateStr, msg => {
@@ -1370,10 +1421,8 @@
         });
 
         overlay.innerHTML = html;
-        // Show the report overlay FIRST so it is visible even if script init fails
         overlay.classList.add('active');
         // innerHTML does NOT execute <script> tags – recreate them manually.
-        // Wrapped in try/catch so a CSP or parse error here doesn't hide the report.
         try {
           overlay.querySelectorAll('script').forEach(s => {
             const n = document.createElement('script');
@@ -1386,36 +1435,11 @@
         reportOk = true;
 
       } catch (err) {
-        const msg = err.message || String(err);
         console.error('[PWRT] Report generation failed:', err);
-        // Show error prominently inside the loading overlay (always full-screen, always visible)
-        const errEl   = document.getElementById('pwrt-loading-err');
-        const titleEl = document.getElementById('pwrt-loading-title');
-        const spinner = document.getElementById('pwrt-loading-spinner');
-        const closeBtn= document.getElementById('pwrt-loading-close');
-        const statusEl= document.getElementById('pwrt-loading-status');
-        if (errEl)    { errEl.textContent = msg; errEl.style.display = 'block'; }
-        if (titleEl)  titleEl.textContent = '⚠ Report failed';
-        if (spinner)  spinner.style.display = 'none';
-        if (statusEl) statusEl.style.display = 'none';
-        if (closeBtn) {
-          closeBtn.style.display = 'inline-block';
-          closeBtn.onclick = function() {
-            const lo = document.getElementById('pwrt-loading-overlay');
-            if (lo) lo.style.display = 'none';
-            // Reset loading overlay for next attempt
-            if (errEl)    { errEl.style.display = 'none'; errEl.textContent = ''; }
-            if (titleEl)  titleEl.textContent = 'Generating report…';
-            if (spinner)  spinner.style.display = 'block';
-            if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = 'Querying the Torn API…'; }
-            if (closeBtn) closeBtn.style.display = 'none';
-          };
-        }
-        showErr(msg);
+        showLoadingErr(err.message || String(err));
         bar.classList.add('pwrt-expanded');
       } finally {
         runBtn.disabled = false;
-        // Only hide loading overlay on success; on error it stays visible for the user to read
         if (reportOk && loadingEl) loadingEl.style.display = 'none';
       }
     });
