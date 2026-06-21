@@ -34,6 +34,11 @@
   const KEY_STORE  = 'pwrt_api_key';
   const DATE_STORE = 'pwrt_last_date';
 
+  // Torn PDA replaces ###PDA-APIKEY### with the user's API key at inject time.
+  // _PDA_KEY_MARKER is split so Torn PDA does NOT replace it (used for comparison).
+  const _PDA_KEY_MARKER  = '###PDA' + '-APIKEY###';
+  const PDA_INJECTED_KEY = '###PDA-APIKEY###';
+
   // ── Storage helpers (GM_ or localStorage fallback for Torn PDA) ───
   function storeGet(key, def) {
     try { return (typeof GM_getValue === 'function') ? GM_getValue(key, def) : (localStorage.getItem(key) ?? def); }
@@ -44,9 +49,26 @@
     catch (e) {}
   }
 
-  // ── Torn PDA detection ──────────────────────────────────────
+  // ── Torn PDA detection & platform readiness ─────────────────
   function isInTornPDA() {
-    return typeof window?.flutter_inappwebview?.callHandler === 'function';
+    try { return typeof window.flutter_inappwebview?.callHandler === 'function'; }
+    catch(e) { return false; }
+  }
+
+  // Torn PDA fires 'flutterInAppWebViewPlatformReady' once callHandler is usable.
+  // gmFetch waits for it before calling PDA_httpGet to avoid timing errors.
+  var _pdaPlatformReady = false;
+  window.addEventListener('flutterInAppWebViewPlatformReady', function() {
+    _pdaPlatformReady = true;
+  });
+  function waitForPlatformReady() {
+    return new Promise(function(resolve) {
+      if (_pdaPlatformReady || !isInTornPDA()) { resolve(); return; }
+      var t = setTimeout(function() { resolve(); }, 5000);
+      window.addEventListener('flutterInAppWebViewPlatformReady', function() {
+        clearTimeout(t); resolve();
+      }, { once: true });
+    });
   }
 
   // ── GM_xmlhttpRequest → Promise ────────────────────────────
@@ -68,14 +90,14 @@
           ontimeout()  { reject(new Error('Request timed out')); },
         });
       } else if (isInTornPDA()) {
-        // Torn PDA native HTTP handler – resolves cross-origin restrictions
-        window.flutter_inappwebview.callHandler('PDA_httpGet', url, {})
-          .then(r => {
-            if (r.status >= 400) { reject(new Error('HTTP ' + r.status)); return; }
-            try { resolve(JSON.parse(r.responseText)); }
-            catch (e) { reject(new Error('Invalid JSON: ' + String(r.responseText).slice(0, 120))); }
-          })
-          .catch(reject);
+        // Torn PDA native HTTP handler – must wait for platform readiness first
+        waitForPlatformReady().then(function() {
+          return window.flutter_inappwebview.callHandler('PDA_httpGet', url, {});
+        }).then(function(r) {
+          if (r.status >= 400) { reject(new Error('HTTP ' + r.status)); return; }
+          try { resolve(JSON.parse(r.responseText)); }
+          catch (e) { reject(new Error('Invalid JSON: ' + String(r.responseText).slice(0, 120))); }
+        }).catch(reject);
       } else {
         // Plain browser fallback (may fail due to CORS on api.torn.com)
         fetch(url, { credentials: 'omit' })
@@ -164,15 +186,17 @@
   }
 
   // ── Torn PDA API key detection ──────────────────────────────
-  // Torn PDA injects the user's API key as window.torn_api_key when
-  // the script declares @grant torn_api_key in its metadata block.
+  // Primary: Torn PDA replaces ###PDA-APIKEY### in the source at inject time.
+  // If PDA_INJECTED_KEY differs from _PDA_KEY_MARKER, the replacement happened.
+  // Fallback: window.torn_api_key from @grant torn_api_key (older PDA versions).
   function getPDAApiKey() {
+    if (PDA_INJECTED_KEY !== _PDA_KEY_MARKER) return PDA_INJECTED_KEY;
     try {
-      return window?.torn_api_key         // PDA: @grant torn_api_key injection (primary)
-          ?? window?.TornAPI?.key         // PDA: alternative injection
-          ?? window?.TornPDA?.apiKey      // PDA: legacy
-          ?? window?.TornPDA?.key         // PDA: legacy
-          ?? window?.TornAPIKey           // PDA: legacy
+      return window?.torn_api_key
+          ?? window?.TornAPI?.key
+          ?? window?.TornPDA?.apiKey
+          ?? window?.TornPDA?.key
+          ?? window?.TornAPIKey
           ?? null;
     } catch (e) { return null; }
   }
@@ -711,16 +735,24 @@
       <span class="leg-item"><span class="leg-dot" style="background:#9955cc"></span> Hospital (other)</span>
       <span class="leg-item"><span class="leg-dot" style="background:#ff8833"></span> Hospital (attack)</span>
       <span class="leg-item"><span class="leg-dot" style="background:#ff3333"></span> Hospital (leave)</span>
-      <span class="leg-item"><span class="leg-dot" style="background:#44cc66"></span> Outgoing ↑</span>
-      <span class="leg-item"><span class="leg-dot" style="background:#dd4444"></span> Incoming ↓</span>
+      <span class="leg-item"><span class="leg-dot" style="background:#dd4444"></span> Incoming ←</span>
+      <span class="leg-item"><span class="leg-dot" style="background:#44cc66"></span> Outgoing →</span>
     </div>
     ${accessLevel !== 'full' ? '<p class="tl-no-data">Activity bands require Full Access API key. Showing attack bars only.</p>' : ''}
-    <div class="tl-outer">
-      <div id="pwrt-tl-above"   class="tl-above"></div>
-      <div id="pwrt-tl-track"   class="tl-track"></div>
-      <div id="pwrt-tl-axis"    class="tl-axis"></div>
-      <div id="pwrt-tl-daterow" class="tl-daterow"></div>
-      <div id="pwrt-tl-below"   class="tl-below"></div>
+    <div class="vtl-outer">
+      <div class="vtl-header">
+        <div class="vtl-left-lbl">← Incoming (respect lost)</div>
+        <div class="vtl-center-lbl">War timeline</div>
+        <div class="vtl-right-lbl">Outgoing (respect gained) →</div>
+      </div>
+      <div class="vtl-body">
+        <div id="pwrt-vtl-left"  class="vtl-left"></div>
+        <div class="vtl-center-col">
+          <div id="pwrt-vtl-track" class="vtl-track"></div>
+          <div id="pwrt-vtl-axis"  class="vtl-axis"></div>
+        </div>
+        <div id="pwrt-vtl-right" class="vtl-right"></div>
+      </div>
     </div>
     <div class="dash-stats">
       <div class="ds ds-blue"><div class="ds-lbl">Time defended</div><div class="ds-pct">${dash.defPct} %</div><div class="ds-abs">${fmtDur(dash.defendedSecs)}</div></div>
@@ -862,7 +894,6 @@
   var AA = ${aaJson};
   var wS = TL.warStart, wE = TL.warEnd, dur = wE - wS;
   var DEST = {1:'Torn',2:'Cayman Islands',3:'UK',4:'Argentina',5:'Switzerland',6:'Japan',7:'China',8:'UAE',9:'Canada',10:'Hawaii',11:'Mexico',12:'South Africa'};
-  function pct(ts){ return Math.max(0,Math.min(100,(ts-wS)/dur*100)); }
   function fDur(s){ if(s<60) return s+'s'; if(s<3600) return Math.floor(s/60)+'m '+(s%60)+'s'; var h=Math.floor(s/3600),m=Math.floor((s%3600)/60); return h+'h'+(m?' '+m+'m':''); }
   function fUtc(ts){ var d=new Date(ts*1000); return d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0')+'-'+String(d.getUTCDate()).padStart(2,'0')+' '+String(d.getUTCHours()).padStart(2,'0')+':'+String(d.getUTCMinutes()).padStart(2,'0')+' UTC'; }
   function fHour(ts){ var d=new Date(ts*1000); return String(d.getUTCHours()).padStart(2,'0')+':00'; }
@@ -871,22 +902,53 @@
   var tip=document.getElementById('pwrt-tl-tooltip');
   document.addEventListener('mousemove',function(e){ if(tip.style.display!=='none'){ var x=e.clientX+14,y=e.clientY-12; if(x+310>window.innerWidth) x=e.clientX-316; tip.style.left=x+'px'; tip.style.top=y+'px'; } });
   function addTip(el,html){ el.addEventListener('mouseenter',function(){ tip.innerHTML=html; tip.style.display='block'; }); el.addEventListener('mouseleave',function(){ tip.style.display='none'; }); }
-  function makeSeg(lp,wp,color,tipHtml){ var el=document.createElement('div'); el.className='tl-seg'; el.style.left=lp+'%'; el.style.width=Math.max(wp,0.25)+'%'; el.style.background=color; if(tipHtml) addTip(el,tipHtml); return el; }
 
   function render(){
-    var track=document.getElementById('pwrt-tl-track'),above=document.getElementById('pwrt-tl-above'),below=document.getElementById('pwrt-tl-below'),axis=document.getElementById('pwrt-tl-axis');
-    if(!track) return;
-    track.innerHTML=above.innerHTML=below.innerHTML=axis.innerHTML='';
-    TL.active.forEach(function(a){ var lp=pct(a.start),wp=pct(a.end)-lp; track.appendChild(makeSeg(lp,wp,'#3aaa55','<b>Active play</b><br>'+fUtc(a.start)+' – '+fUtc(a.end))); });
-    TL.travel.forEach(function(t){ var d=DEST[t.dest_id]||('Location #'+t.dest_id),o=DEST[t.origin_id]||('Location #'+t.origin_id),lp=pct(t.start),wp=pct(t.end)-lp; track.appendChild(makeSeg(lp,wp,'#5bc8f5','<b>✈ '+o+' → '+d+'</b><br>Duration: '+fDur(t.duration)+'<br>'+fUtc(t.start))); });
-    TL.hospital.forEach(function(h){ var lp=pct(h.start),wp=pct(h.end)-lp,color=h.type==='leave'?'#ff3333':h.type==='attack'?'#ff8833':'#9955cc',title=h.type==='leave'?'🏥 Hospital <em>(leave attack)</em>':h.type==='attack'?'🏥 Hospital <em>(attack)</em>':'🏥 Hospital <em>(other)</em>'; var th='<b>'+title+'</b><br>Duration: '+fDur(h.duration)+'<br>'+fUtc(h.start); if(h.attacker) th+='<br>By: '+h.attacker; if(h.items_used&&h.items_used.length) th+='<br>Items: '+h.items_used.join(', '); track.appendChild(makeSeg(lp,wp,color,th)); });
-    var allRe=TL.outgoing.map(function(a){return a.respect;}).concat(TL.incoming.map(function(a){return a.respect;})),maxRe=Math.max.apply(null,allRe.concat([0.01])),BAR_H=58,BAR_W=5,trkW=track.offsetWidth||800;
-    function merge(attacks){ if(!attacks.length) return []; var sorted=attacks.slice().sort(function(a,b){return a.ts-b.ts;}),groups=[],cur={items:[sorted[0]],totalResp:sorted[0].respect,lastTs:sorted[0].ts}; for(var i=1;i<sorted.length;i++){ var a=sorted[i],px=(pct(a.ts)-pct(cur.lastTs))/100*trkW; if(px<BAR_W){cur.items.push(a);cur.totalResp+=a.respect;if(a.ts>cur.lastTs)cur.lastTs=a.ts;}else{groups.push(cur);cur={items:[a],totalResp:a.respect,lastTs:a.ts};} } groups.push(cur); return groups; }
-    merge(TL.outgoing).forEach(function(g){ var ap=g.items.reduce(function(s,a){return s+pct(a.ts);},0)/g.items.length,h=Math.max(2,g.totalResp/maxRe*BAR_H),bar=document.createElement('div'); bar.className='tl-bar-up'; bar.style.left=ap+'%'; bar.style.height=h+'px'; var t; if(g.items.length===1){var a=g.items[0];t='<b>⚔ Outgoing</b><br>Opponent: '+a.opponent+'<br><span style="color:#66dd88">+'+a.respect.toFixed(2)+' respect</span><br>'+fUtc(a.ts);}else{t='<b>⚔ Outgoing ×'+g.items.length+'</b><br><span style="color:#66dd88">Total: +'+g.totalResp.toFixed(2)+' respect</span>';g.items.forEach(function(a){t+='<hr style="border-color:#334;margin:4px 0">Opponent: '+a.opponent+'<br>+'+a.respect.toFixed(2)+' resp &nbsp;'+fUtc(a.ts);});} addTip(bar,t); above.appendChild(bar); });
-    merge(TL.incoming).forEach(function(g){ var ap=g.items.reduce(function(s,a){return s+pct(a.ts);},0)/g.items.length,h=Math.max(2,g.totalResp/maxRe*BAR_H),bar=document.createElement('div'); bar.className='tl-bar-down'; bar.style.left=ap+'%'; bar.style.height=h+'px'; var t; if(g.items.length===1){var a=g.items[0];t='<b>💥 Incoming</b><br>Attacker: '+a.attacker+'<br><span style="color:#ff6666">-'+a.respect.toFixed(2)+' respect</span><br>'+fUtc(a.ts);}else{t='<b>💥 Incoming ×'+g.items.length+'</b><br><span style="color:#ff6666">Total: -'+g.totalResp.toFixed(2)+' respect</span>';g.items.forEach(function(a){t+='<hr style="border-color:#334;margin:4px 0">Attacker: '+a.attacker+'<br>-'+a.respect.toFixed(2)+' resp &nbsp;'+fUtc(a.ts);});} addTip(bar,t); below.appendChild(bar); });
-    var iv=tickIv(dur),fh=Math.ceil(wS/3600)*3600;
-    for(var ts=fh;ts<=wE;ts+=iv){ if(ts<wS) continue; var xp=pct(ts),tk=document.createElement('div'); tk.className='tl-tick'; tk.style.left=xp+'%'; tk.innerHTML='<div class="tl-tick-line"></div><div class="tl-tick-label">'+fHour(ts)+'</div>'; axis.appendChild(tk); }
-    var dr=document.getElementById('pwrt-tl-daterow'); if(dr){ dr.innerHTML=''; var dStart=Math.floor(wS/86400)*86400; for(var dts=dStart;dts<=wE;dts+=86400){ var segS=Math.max(dts,wS),segE=Math.min(dts+86400,wE); if(segE<=segS) continue; var midP=(pct(segS)+pct(segE))/2,dd=new Date(dts*1000),dl=document.createElement('div'); dl.className='tl-date-label'; dl.style.left=midP+'%'; dl.textContent=String(dd.getUTCDate()).padStart(2,'0')+'.'+String(dd.getUTCMonth()+1).padStart(2,'0')+'.'+dd.getUTCFullYear(); dr.appendChild(dl); } }
+    var trackEl=document.getElementById('pwrt-vtl-track');
+    var leftEl=document.getElementById('pwrt-vtl-left');
+    var rightEl=document.getElementById('pwrt-vtl-right');
+    var axisEl=document.getElementById('pwrt-vtl-axis');
+    if(!trackEl) return;
+    trackEl.innerHTML=''; leftEl.innerHTML=''; rightEl.innerHTML=''; axisEl.innerHTML='';
+    // Dynamic height: ~1 px per 4 min of war, min 400 px, max 2000 px
+    var tlH=Math.max(400,Math.min(2000,Math.round(dur/240)));
+    var body=document.querySelector('.vtl-body'); if(body) body.style.height=tlH+'px';
+    function vpct(ts){ return Math.max(0,Math.min(100,(ts-wS)/dur*100)); }
+    function mkSeg(tp,hp,color,tipHtml){
+      var el=document.createElement('div'); el.className='vtl-seg';
+      el.style.top=tp+'%'; el.style.height=Math.max(hp,0.2)+'%'; el.style.background=color;
+      if(tipHtml) addTip(el,tipHtml); return el;
+    }
+    TL.active.forEach(function(a){ var tp=vpct(a.start),hp=vpct(a.end)-tp; trackEl.appendChild(mkSeg(tp,hp,'#3aaa55','<b>Active play</b><br>'+fUtc(a.start)+' – '+fUtc(a.end))); });
+    TL.travel.forEach(function(t){ var d=DEST[t.dest_id]||('Location #'+t.dest_id),o=DEST[t.origin_id]||('Location #'+t.origin_id),tp=vpct(t.start),hp=vpct(t.end)-tp; trackEl.appendChild(mkSeg(tp,hp,'#5bc8f5','<b>✈ '+o+' → '+d+'</b><br>Duration: '+fDur(t.duration)+'<br>'+fUtc(t.start))); });
+    TL.hospital.forEach(function(h){ var tp=vpct(h.start),hp=vpct(h.end)-tp,color=h.type==='leave'?'#ff3333':h.type==='attack'?'#ff8833':'#9955cc',title=h.type==='leave'?'🏥 Hospital <em>(leave)</em>':h.type==='attack'?'🏥 Hospital <em>(attack)</em>':'🏥 Hospital <em>(other)</em>'; var th='<b>'+title+'</b><br>Duration: '+fDur(h.duration)+'<br>'+fUtc(h.start); if(h.attacker) th+='<br>By: '+h.attacker; if(h.items_used&&h.items_used.length) th+='<br>Items: '+h.items_used.join(', '); trackEl.appendChild(mkSeg(tp,hp,color,th)); });
+    var allRe=TL.outgoing.map(function(a){return a.respect;}).concat(TL.incoming.map(function(a){return a.respect;})),maxRe=Math.max.apply(null,allRe.concat([0.01]));
+    // Incoming → LEFT column, bar extends from right edge leftward (respect lost)
+    TL.incoming.forEach(function(a){
+      var bw=Math.max(a.respect/maxRe*95,1),bar=document.createElement('div');
+      bar.className='vtl-bar-in'; bar.style.top=vpct(a.ts)+'%'; bar.style.width=bw+'%';
+      addTip(bar,'<b>💥 Incoming</b><br>Attacker: '+a.attacker+'<br><span style="color:#ff6666">-'+a.respect.toFixed(2)+' respect</span><br>'+fUtc(a.ts));
+      leftEl.appendChild(bar);
+    });
+    // Outgoing → RIGHT column, bar extends from left edge rightward (respect gained)
+    TL.outgoing.forEach(function(a){
+      var bw=Math.max(a.respect/maxRe*95,1),bar=document.createElement('div');
+      bar.className='vtl-bar-out'; bar.style.top=vpct(a.ts)+'%'; bar.style.width=bw+'%';
+      addTip(bar,'<b>⚔ Outgoing</b><br>Opponent: '+a.opponent+'<br><span style="color:#66dd88">+'+a.respect.toFixed(2)+' respect</span><br>'+fUtc(a.ts));
+      rightEl.appendChild(bar);
+    });
+    // Hour ticks on axis column
+    var iv=tickIv(dur),fh2=Math.ceil(wS/3600)*3600;
+    for(var ts=fh2;ts<=wE;ts+=iv){ if(ts<wS) continue; var tk=document.createElement('div'); tk.className='vtl-tick'; tk.style.top=vpct(ts)+'%'; tk.textContent=fHour(ts); axisEl.appendChild(tk); }
+    // Day labels on axis column
+    var dStart2=Math.floor(wS/86400)*86400;
+    for(var dts=dStart2;dts<=wE;dts+=86400){
+      var segS=Math.max(dts,wS),segE=Math.min(dts+86400,wE); if(segE<=segS) continue;
+      var midVp=(vpct(segS)+vpct(segE))/2,dd2=new Date(dts*1000),dl=document.createElement('div');
+      dl.className='vtl-date-label'; dl.style.top=midVp+'%';
+      dl.textContent=String(dd2.getUTCDate()).padStart(2,'0')+'.'+String(dd2.getUTCMonth()+1).padStart(2,'0')+'.'+dd2.getUTCFullYear();
+      axisEl.appendChild(dl);
+    }
   }
 
   function renderHourChart(){
@@ -1093,22 +1155,26 @@
 .tl-legend{display:flex;flex-wrap:wrap;gap:14px;margin:12px 0 16px;font-size:12px;color:#ccc}
 .leg-item{display:flex;align-items:center;gap:5px}
 .leg-dot{display:inline-block;width:14px;height:14px;border-radius:3px;flex-shrink:0}
-.tl-outer{position:relative;width:100%;user-select:none;padding-bottom:6px}
-.tl-above{position:relative;height:70px}
-.tl-track{position:relative;height:24px;background:#2a2a3a;border-radius:3px;overflow:visible;z-index:1}
-.tl-seg{position:absolute;top:0;height:100%;border-radius:2px;cursor:pointer;opacity:.85;transition:opacity .15s;z-index:2}
-.tl-seg:hover{opacity:1;z-index:10}
-.tl-axis{position:relative;height:34px;margin-top:2px}
-.tl-daterow{position:relative;height:20px;margin-top:1px;border-top:1px solid #2a3344}
-.tl-date-label{position:absolute;top:3px;transform:translateX(-50%);font-size:11px;color:#7799cc;font-weight:bold;white-space:nowrap}
-.tl-below{position:relative;height:70px;margin-top:0}
-.tl-tick{position:absolute;top:0;transform:translateX(-50%)}
-.tl-tick-line{width:1px;height:8px;background:#445;margin:0 auto}
-.tl-tick-label{font-size:12px;color:#889;text-align:center;white-space:nowrap;margin-top:2px}
-.tl-bar-up{position:absolute;bottom:0;width:5px;min-height:2px;background:#44cc66;border-radius:2px 2px 0 0;transform:translateX(-2px);cursor:pointer;z-index:5}
-.tl-bar-down{position:absolute;top:0;width:5px;min-height:2px;background:#dd4444;border-radius:0 0 2px 2px;transform:translateX(-2px);cursor:pointer;z-index:5}
 .tl-tooltip{display:none;position:fixed;background:#1e1e3a;border:1px solid #4455aa;border-radius:7px;padding:9px 13px;font-size:12px;color:#e0e0e0;pointer-events:none;z-index:9999;max-width:300px;box-shadow:0 4px 16px rgba(0,0,0,.6);line-height:1.6}
 .tl-no-data{color:#556;font-style:italic;padding:16px 0}
+.vtl-outer{margin:16px 0;user-select:none}
+.vtl-header{display:flex;font-size:11px;color:#778;margin-bottom:6px;gap:4px}
+.vtl-left-lbl{flex:1;text-align:right;padding-right:6px;color:#ff6666}
+.vtl-center-lbl{flex:0 0 84px;text-align:center;color:#889}
+.vtl-right-lbl{flex:1;text-align:left;padding-left:6px;color:#66dd88}
+.vtl-body{display:flex;position:relative;min-height:400px}
+.vtl-left{flex:1;position:relative;border-right:2px solid #2a3344;overflow:hidden}
+.vtl-center-col{flex:0 0 84px;display:flex}
+.vtl-track{width:14px;position:relative;background:#2a2a3a;flex-shrink:0}
+.vtl-axis{flex:1;position:relative}
+.vtl-right{flex:1;position:relative;border-left:2px solid #2a3344;overflow:hidden}
+.vtl-seg{position:absolute;left:0;width:100%;border-radius:2px;cursor:pointer;opacity:.85;transition:opacity .15s;z-index:2;min-height:3px}
+.vtl-seg:hover{opacity:1;z-index:10}
+.vtl-bar-in{position:absolute;right:0;height:5px;min-width:3px;background:#dd4444;border-radius:3px 0 0 3px;cursor:pointer;transform:translateY(-2px);z-index:5;transition:opacity .15s}
+.vtl-bar-out{position:absolute;left:0;height:5px;min-width:3px;background:#44cc66;border-radius:0 3px 3px 0;cursor:pointer;transform:translateY(-2px);z-index:5;transition:opacity .15s}
+.vtl-bar-in:hover,.vtl-bar-out:hover{opacity:.6}
+.vtl-tick{position:absolute;left:2px;transform:translateY(-50%);font-size:10px;color:#889;white-space:nowrap;pointer-events:none}
+.vtl-date-label{position:absolute;left:18px;transform:translateY(-50%);font-size:11px;color:#7799cc;font-weight:bold;white-space:nowrap;pointer-events:none}
 .dash-stats{display:flex;flex-wrap:wrap;gap:12px;margin:20px 0 8px}
 .ds{background:#232340;border:1px solid #334;border-radius:7px;padding:11px 18px;min-width:160px;flex:1}
 .ds .ds-lbl{font-size:11px;color:#778;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
@@ -1223,7 +1289,7 @@
         <strong>⚙ First-time setup</strong><br>
         Enter your <strong>Torn API key</strong> (Limited access or higher) and click <em>Save Key</em>.<br>
         Get your key: <a href="https://www.torn.com/preferences.php#tab=api" target="_blank">torn.com → Preferences → API</a>
-        ${isInTornPDA() ? '<br><em style="color:#778">Tip: Reinstalling with <strong>@grant torn_api_key</strong> lets Torn PDA inject your key automatically.</em>' : ''}
+
       </div>` : '';
 
     const bar = document.createElement('div');
@@ -1255,7 +1321,7 @@
     target.insertAdjacentElement('beforebegin', bar);
 
     // Auto-expand on first install so the user sees the setup prompt
-    if (isFirstRun || pdaKey) {
+    if (isFirstRun) {
       bar.classList.add('pwrt-expanded');
     }
 
@@ -1301,10 +1367,17 @@
         });
 
         overlay.innerHTML = html;
+        // innerHTML does NOT execute <script> tags – recreate them manually
+        overlay.querySelectorAll('script').forEach(s => {
+          const n = document.createElement('script');
+          n.textContent = s.textContent;
+          s.replaceWith(n);
+        });
         overlay.classList.add('active');
 
       } catch (err) {
-        showErr(err.message);
+        showErr(err.message || String(err));
+        bar.classList.add('pwrt-expanded'); // ensure the error message is visible
       } finally {
         runBtn.disabled = false;
         if (loadingEl) loadingEl.style.display = 'none';
