@@ -6,8 +6,8 @@
 // @author       PWRT
 // @homepageURL  https://github.com/florianbredlow-cmd/pwrt
 // @supportURL   https://github.com/florianbredlow-cmd/pwrt/issues
-// @downloadURL  https://raw.githubusercontent.com/florianbredlow-cmd/pwrt/main/pwrt_greasy/pwrt.user.js
-// @updateURL    https://raw.githubusercontent.com/florianbredlow-cmd/pwrt/main/pwrt_greasy/pwrt.user.js
+// @downloadURL  https://cdn.jsdelivr.net/gh/florianbredlow-cmd/pwrt@main/pwrt_greasy/pwrt.user.js
+// @updateURL    https://cdn.jsdelivr.net/gh/florianbredlow-cmd/pwrt@main/pwrt_greasy/pwrt.user.js
 // @match        https://www.torn.com/factions.php*
 // @include      https://www.torn.com/factions.php*
 // @grant        GM_getValue
