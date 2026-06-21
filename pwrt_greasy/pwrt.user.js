@@ -4,10 +4,10 @@
 // @version      1.1.0
 // @description  Personal War Report Tool for Torn – shows your ranked-war statistics on the Factions page. Works in Torn PDA (iOS/Android) and desktop browsers with Tampermonkey/Violentmonkey. On first use you will be prompted for your Torn API key (Limited access or higher).
 // @author       PWRT
-// @homepageURL  https://github.com/florianbredlow-cmd/pwrt
-// @supportURL   https://github.com/florianbredlow-cmd/pwrt/issues
-// @downloadURL  https://cdn.jsdelivr.net/gh/florianbredlow-cmd/pwrt@main/pwrt_greasy/pwrt.user.js
-// @updateURL    https://cdn.jsdelivr.net/gh/florianbredlow-cmd/pwrt@main/pwrt_greasy/pwrt.user.js
+// @homepageURL  https://github.com/flotomat/pwrt
+// @supportURL   https://github.com/flotomat/pwrt/issues
+// @downloadURL  https://cdn.jsdelivr.net/gh/flotomat/pwrt@main/pwrt_greasy/pwrt.user.js
+// @updateURL    https://cdn.jsdelivr.net/gh/flotomat/pwrt@main/pwrt_greasy/pwrt.user.js
 // @match        https://www.torn.com/factions.php*
 // @include      https://www.torn.com/factions.php*
 // @grant        GM_getValue
