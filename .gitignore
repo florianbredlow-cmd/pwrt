@@ -1,0 +1,7 @@
+# Ignore everything …
+*
+
+# … except the userscript
+!.gitignore
+!pwrt_greasy/
+!pwrt_greasy/pwrt.user.js
