@@ -56,18 +56,22 @@
   }
 
   // Torn PDA fires 'flutterInAppWebViewPlatformReady' once callHandler is usable.
-  // gmFetch waits for it before calling PDA_httpGet to avoid timing errors.
+  // NOTE: isInTornPDA() already verifies callHandler IS a function, so if it returns
+  // true, the platform is ready right now. The event may have fired before our listener
+  // was registered (script runs at document-idle) – hence we must NOT wait when
+  // isInTornPDA() is already true, otherwise we waste 5 seconds every call.
   var _pdaPlatformReady = false;
   window.addEventListener('flutterInAppWebViewPlatformReady', function() {
     _pdaPlatformReady = true;
   });
   function waitForPlatformReady() {
     return new Promise(function(resolve) {
-      if (_pdaPlatformReady || !isInTornPDA()) { resolve(); return; }
-      var t = setTimeout(function() { resolve(); }, 5000);
-      window.addEventListener('flutterInAppWebViewPlatformReady', function() {
-        clearTimeout(t); resolve();
-      }, { once: true });
+      // Not in PDA at all → no need to wait
+      if (!isInTornPDA()) { resolve(); return; }
+      // isInTornPDA() checks typeof callHandler === 'function', meaning it IS
+      // accessible right now → the platform is already ready → resolve immediately.
+      // (If callHandler were not ready yet, isInTornPDA() would return false.)
+      resolve();
     });
   }
 
@@ -125,13 +129,24 @@
   async function checkKeyPermissions(key) {
     if (!key) return [null, 'No API key entered.'];
     let data;
-    try { data = await gmFetch(buildUrl(`${API_V2}/key/info`, { key })); }
-    catch (e) { return [null, 'API request failed: ' + e.message]; }
+    // Use V1 key endpoint – simpler, known-good structure.
+    // V1: https://api.torn.com/key/?selections=info&key=xxx
+    // Response: { "info": { "access": { "level": 3 } } }
+    try {
+      data = await gmFetch(buildUrl(`${API_V1}/key/`, { selections: 'info', key }));
+    } catch (e) {
+      return [null, 'Network error during key check: ' + e.message];
+    }
     if (data.error) return [null, `API error ${data.error.code}: ${data.error.error}`];
-    const level = parseInt((data.info?.access?.level) ?? 0, 10);
+    // Handle V1 structure (info.access.level) AND V2 structure (key.access_level) defensively
+    const level = parseInt(
+      data.info?.access?.level ??
+      data.key?.access_level  ??
+      data.key?.accessLevel   ??
+      0, 10);
     if (level >= 4) return ['full', null];
     if (level >= 3) return ['limited', null];
-    return [null, `Insufficient permission (level ${level}). At least "Limited" key required.`];
+    return [null, `API key has insufficient access (level ${level}). Need "Limited" (3) or higher.`];
   }
 
   // ── Date helpers ────────────────────────────────────────────
@@ -1008,21 +1023,22 @@
 
     onStatus('Fetching player info…');
     const [playerId, factionId] = await getPlayerInfo(key);
-    if (!playerId) throw new Error('Could not retrieve player ID from API.');
+    if (!playerId) throw new Error('Could not retrieve player ID from API. Check your key.');
+    if (!factionId) throw new Error('Could not retrieve faction ID. Are you in a faction?');
 
     const searchTs = parseDateStr(dateStr);
-    onStatus('Looking for war events…');
+    onStatus('Scanning events for war start…');
     const [warStart, oppId, oppName] = await getWarStartAndOpponent(searchTs, factionId, key);
-    if (!warStart) throw new Error(`No ranked war start event found on or before ${dateStr}. Enter a date during or just after the war.`);
+    if (!warStart) throw new Error(`No ranked-war start event found on or before ${dateStr}. Enter a date during or just after the war.`);
 
-    onStatus('Fetching war timeline…');
+    onStatus('Fetching war end, result and attacks…');
     const [warEnd, warResult, allAttacks] = await Promise.all([
       findWarEnd(warStart, key),
       getWarResult(warStart, oppId, key),
       getAttacksV2(warStart, warStart + 123 * 3600 + 3600, key),
     ]);
 
-    onStatus(`Processing ${allAttacks.length} attacks…`);
+    onStatus(`Filtering ${allAttacks.length} attacks…`);
 
     const outgoing = [], incoming = [];
     for (const atk of allAttacks) {
@@ -1067,6 +1083,7 @@
 
   // ── CSS ───────────────────────────────────────────────────────
   const CSS = `
+@keyframes pwrt-spin{to{transform:rotate(360deg)}}
 #pwrt-trigger-bar {
   background:#252545;border-bottom:2px solid #3355aa;padding:8px 16px;
   font-family:Arial,sans-serif;font-size:13px;color:#e0e0e0;position:relative;z-index:100;
@@ -1236,16 +1253,7 @@
 }
 `;
 
-  // ── Loading overlay ───────────────────────────────────────────
-  const LOADING_HTML = `
-<div id="pwrt-loading-overlay" style="display:none;position:fixed;inset:0;background:#1a1a2ecc;backdrop-filter:blur(3px);z-index:99998;flex-direction:column;align-items:center;justify-content:center;gap:18px;">
-  <div id="pwrt-loading-spinner" style="width:48px;height:48px;border:4px solid #33336688;border-top-color:#aaddff;border-radius:50%;animation:pwrt-spin .8s linear infinite"></div>
-  <div id="pwrt-loading-title" style="color:#aaddff;font-size:15px">Generating report…</div>
-  <div id="pwrt-loading-status" style="color:#667;font-size:12px;margin-top:-10px">Querying the Torn API…</div>
-  <div id="pwrt-loading-err" style="display:none;color:#ff8888;font-size:13px;max-width:80%;text-align:center;padding:12px 18px;background:#2a1a1a;border:1px solid #884444;border-radius:8px;line-height:1.6"></div>
-  <button id="pwrt-loading-close" style="display:none;margin-top:8px;padding:8px 24px;background:#334;border:1px solid #556;border-radius:6px;color:#ccc;font-size:13px;cursor:pointer">Close</button>
-</div>
-<style>@keyframes pwrt-spin{to{transform:rotate(360deg)}}</style>`;
+
 
   // ── Inject UI on faction page ─────────────────────────────────
   function injectUI() {
@@ -1257,10 +1265,7 @@
     style.textContent = CSS;
     document.head.appendChild(style);
 
-    // Loading overlay
-    document.body.insertAdjacentHTML('beforeend', LOADING_HTML);
-
-    // Full-screen report overlay
+    // Full-screen report overlay (closure variable – re-attached to body if needed)
     const overlay = document.createElement('div');
     overlay.id = 'pwrt-overlay';
     document.body.appendChild(overlay);
@@ -1312,15 +1317,8 @@
       </div>
     `;
 
-    // Insert at the top of the page content
-    const target = document.querySelector('#faction-main') ??
-                   document.querySelector('.content-title') ??
-                   document.querySelector('#mainContainer') ??
-                   document.querySelector('body > div[class]') ??
-                   document.body.firstElementChild ??
-                   document.body;
-
-    target.insertAdjacentElement('beforebegin', bar);
+    // Insert bar as the very first child of <body> so it always appears at the top
+    document.body.prepend(bar);
 
     // Auto-expand on first install so the user sees the setup prompt
     if (isFirstRun) {
@@ -1345,50 +1343,46 @@
     }
 
     document.getElementById('pwrt-run-btn').addEventListener('click', async () => {
-      const runBtn    = document.getElementById('pwrt-run-btn');
-      const loadingEl = document.getElementById('pwrt-loading-overlay');
+      // ── Outer nuclear catch – last-resort fallback if anything throws before ──
+      // the inner try/catch (e.g. a synchronous error creating the loading UI).
+      let _loadingEl = null;
+      let _runBtn = null;
+      try {
 
-      // ── Helper: show error INSIDE the full-screen loading overlay ──────────
-      function showLoadingErr(msg) {
-        const errEl   = document.getElementById('pwrt-loading-err');
-        const titleEl = document.getElementById('pwrt-loading-title');
-        const spinner = document.getElementById('pwrt-loading-spinner');
-        const closeBtn= document.getElementById('pwrt-loading-close');
-        const statusEl= document.getElementById('pwrt-loading-status');
-        if (errEl)    { errEl.innerHTML = msg; errEl.style.display = 'block'; }
-        if (titleEl)  titleEl.textContent = '⚠ Failed';
-        if (spinner)  spinner.style.display = 'none';
-        if (statusEl) statusEl.style.display = 'none';
-        if (closeBtn) {
-          closeBtn.style.display = 'inline-block';
-          closeBtn.onclick = function() {
-            if (loadingEl) loadingEl.style.display = 'none';
-            if (errEl)    { errEl.style.display = 'none'; errEl.textContent = ''; }
-            if (titleEl)  titleEl.textContent = 'Generating report…';
-            if (spinner)  spinner.style.display = 'block';
-            if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = 'Querying the Torn API…'; }
-            if (closeBtn) closeBtn.style.display = 'none';
-          };
-        }
-        runBtn.disabled = false;
-      }
-
-      // ── Show loading overlay IMMEDIATELY – always, before any validation ───
+      _runBtn = document.getElementById('pwrt-run-btn');
       clearMessages();
-      runBtn.disabled = true;
-      if (loadingEl) {
-        // Reset to clean state in case of previous error
-        const errEl   = document.getElementById('pwrt-loading-err');
-        const titleEl = document.getElementById('pwrt-loading-title');
-        const spinner = document.getElementById('pwrt-loading-spinner');
-        const closeBtn= document.getElementById('pwrt-loading-close');
-        const statusEl= document.getElementById('pwrt-loading-status');
-        if (errEl)    { errEl.style.display = 'none'; errEl.textContent = ''; }
-        if (titleEl)  titleEl.textContent = 'Generating report…';
-        if (spinner)  spinner.style.display = 'block';
-        if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = 'Validating inputs…'; }
-        if (closeBtn) closeBtn.style.display = 'none';
-        loadingEl.style.display = 'flex';
+      _runBtn.disabled = true;
+
+      // ── Create a fresh loading overlay directly in <body> every time ───────
+      // This can never be null or detached – avoids silent failures from SPA DOM removal.
+      const loadingEl = document.createElement('div');
+      _loadingEl = loadingEl;
+      loadingEl.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(26,26,46,.92);z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;font-family:Arial,sans-serif';
+      loadingEl.innerHTML = [
+        '<div id="pwrt-ls" style="width:48px;height:48px;border:4px solid rgba(51,51,102,.5);border-top-color:#aaddff;border-radius:50%;animation:pwrt-spin .8s linear infinite"></div>',
+        '<div id="pwrt-lt" style="color:#aaddff;font-size:15px;font-weight:bold">Generating report…</div>',
+        '<div id="pwrt-lm" style="color:#999;font-size:13px;margin-top:-8px">Validating…</div>',
+        '<div id="pwrt-le" style="display:none;color:#ff9999;font-size:13px;max-width:85%;text-align:center;padding:16px 20px;background:#2a1212;border:2px solid #cc3333;border-radius:8px;line-height:1.7;word-break:break-word"></div>',
+        '<button id="pwrt-lc" style="display:none;padding:10px 28px;background:#2a2a4a;border:1px solid #556;border-radius:6px;color:#ccc;font-size:14px;cursor:pointer">Close</button>'
+      ].join('');
+      document.body.appendChild(loadingEl);
+
+      const lSpinner = loadingEl.querySelector('#pwrt-ls');
+      const lTitle   = loadingEl.querySelector('#pwrt-lt');
+      const lMsg     = loadingEl.querySelector('#pwrt-lm');
+      const lErr     = loadingEl.querySelector('#pwrt-le');
+      const lClose   = loadingEl.querySelector('#pwrt-lc');
+
+      function setStatus(txt) { if (lMsg) lMsg.textContent = txt; }
+      function showLoadingErr(html) {
+        if (lSpinner) lSpinner.style.display = 'none';
+        if (lTitle)   lTitle.textContent = '⚠ Failed';
+        if (lMsg)     lMsg.style.display = 'none';
+        if (lErr)   { lErr.innerHTML = html; lErr.style.display = 'block'; }
+        if (lClose) {
+          lClose.style.display = 'inline-block';
+          lClose.onclick = function() { loadingEl.remove(); _runBtn.disabled = false; };
+        }
       }
 
       // ── Validation ────────────────────────────────────────────────────────
@@ -1398,7 +1392,7 @@
       const dateStr   = (document.getElementById('pwrt-date-input')?.value ?? '').trim();
 
       if (!key) {
-        showLoadingErr('No API key found.<br>Enter your Torn API key in the input field and click <em>Save Key</em> first.');
+        showLoadingErr('No API key found.<br>Enter your Torn API key in the field and click <em>Save Key</em>.');
         return;
       }
       if (!dateStr) {
@@ -1406,19 +1400,21 @@
         return;
       }
       if (!/^\d{2}\.\d{2}\.\d{4}$/.test(dateStr)) {
-        showLoadingErr('Invalid date format — please use <strong>DD.MM.YYYY</strong>.<br>Got: ' + dateStr);
+        showLoadingErr('Invalid date format — use <strong>DD.MM.YYYY</strong>.<br>Got: ' + esc(dateStr));
         return;
       }
 
       storeSet(DATE_STORE, dateStr);
 
-      // ── Run report ────────────────────────────────────────────────────────
+      // ── Ensure report overlay is in the DOM ───────────────────────────────
+      if (!document.body.contains(overlay)) document.body.appendChild(overlay);
+
+      // ── Run report with hard 60s timeout ─────────────────────────────────
       let reportOk = false;
       try {
-        const html = await runReport(key, dateStr, msg => {
-          const statusEl = document.getElementById('pwrt-loading-status');
-          if (statusEl) statusEl.textContent = msg;
-        });
+        const timeoutP = new Promise((_, rej) =>
+          setTimeout(() => rej(new Error('Report timed out after 60 s. Check your connection.')), 60000));
+        const html = await Promise.race([runReport(key, dateStr, setStatus), timeoutP]);
 
         overlay.innerHTML = html;
         overlay.classList.add('active');
@@ -1436,11 +1432,27 @@
 
       } catch (err) {
         console.error('[PWRT] Report generation failed:', err);
-        showLoadingErr(err.message || String(err));
+        showLoadingErr(esc(err.message || String(err)));
         bar.classList.add('pwrt-expanded');
       } finally {
-        runBtn.disabled = false;
-        if (reportOk && loadingEl) loadingEl.style.display = 'none';
+        _runBtn.disabled = false;
+        if (reportOk) loadingEl.remove();
+      }
+
+      // ── Close outer nuclear try/catch ─────────────────────────────────────
+      } catch (outerErr) {
+        console.error('[PWRT] Unexpected top-level error:', outerErr);
+        // Nuclear fallback – always visible even if loadingEl creation failed
+        try { if (_loadingEl) _loadingEl.remove(); } catch(_) {}
+        const errDiv = document.createElement('div');
+        errDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(26,10,10,.95);z-index:999999;display:flex;align-items:center;justify-content:center;font-family:Arial,sans-serif';
+        errDiv.innerHTML = '<div style="background:#2a1212;border:2px solid #ff4444;border-radius:10px;padding:28px 32px;max-width:88%;color:#ff9999;text-align:center;line-height:1.8">' +
+          '<b style="font-size:17px;color:#ffaaaa">PWRT – Unexpected Error</b><br><br>' +
+          '<span style="font-size:13px;word-break:break-word">' + esc(String(outerErr?.message || outerErr)) + '</span><br><br>' +
+          '<button onclick="this.parentNode.parentNode.remove()" style="padding:9px 22px;background:#334;border:1px solid #556;border-radius:5px;color:#ccc;cursor:pointer;font-size:13px">Close</button>' +
+          '</div>';
+        document.body.appendChild(errDiv);
+        try { if (_runBtn) _runBtn.disabled = false; } catch(_) {}
       }
     });
   }
