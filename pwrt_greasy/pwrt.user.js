@@ -1239,9 +1239,11 @@
   // ── Loading overlay ───────────────────────────────────────────
   const LOADING_HTML = `
 <div id="pwrt-loading-overlay" style="display:none;position:fixed;inset:0;background:#1a1a2ecc;backdrop-filter:blur(3px);z-index:99998;flex-direction:column;align-items:center;justify-content:center;gap:18px;">
-  <div style="width:48px;height:48px;border:4px solid #33336688;border-top-color:#aaddff;border-radius:50%;animation:pwrt-spin .8s linear infinite"></div>
-  <div style="color:#aaddff;font-size:15px">Generating report…</div>
+  <div id="pwrt-loading-spinner" style="width:48px;height:48px;border:4px solid #33336688;border-top-color:#aaddff;border-radius:50%;animation:pwrt-spin .8s linear infinite"></div>
+  <div id="pwrt-loading-title" style="color:#aaddff;font-size:15px">Generating report…</div>
   <div id="pwrt-loading-status" style="color:#667;font-size:12px;margin-top:-10px">Querying the Torn API…</div>
+  <div id="pwrt-loading-err" style="display:none;color:#ff8888;font-size:13px;max-width:80%;text-align:center;padding:12px 18px;background:#2a1a1a;border:1px solid #884444;border-radius:8px;line-height:1.6"></div>
+  <button id="pwrt-loading-close" style="display:none;margin-top:8px;padding:8px 24px;background:#334;border:1px solid #556;border-radius:6px;color:#ccc;font-size:13px;cursor:pointer">Close</button>
 </div>
 <style>@keyframes pwrt-spin{to{transform:rotate(360deg)}}</style>`;
 
@@ -1360,6 +1362,7 @@
       runBtn.disabled = true;
       if (loadingEl) { loadingEl.style.display = 'flex'; }
 
+      let reportOk = false;
       try {
         const html = await runReport(key, dateStr, msg => {
           const statusEl = document.getElementById('pwrt-loading-status');
@@ -1367,20 +1370,53 @@
         });
 
         overlay.innerHTML = html;
-        // innerHTML does NOT execute <script> tags – recreate them manually
-        overlay.querySelectorAll('script').forEach(s => {
-          const n = document.createElement('script');
-          n.textContent = s.textContent;
-          s.replaceWith(n);
-        });
+        // Show the report overlay FIRST so it is visible even if script init fails
         overlay.classList.add('active');
+        // innerHTML does NOT execute <script> tags – recreate them manually.
+        // Wrapped in try/catch so a CSP or parse error here doesn't hide the report.
+        try {
+          overlay.querySelectorAll('script').forEach(s => {
+            const n = document.createElement('script');
+            n.textContent = s.textContent;
+            s.replaceWith(n);
+          });
+        } catch (scriptErr) {
+          console.error('[PWRT] Script re-execution failed:', scriptErr);
+        }
+        reportOk = true;
 
       } catch (err) {
-        showErr(err.message || String(err));
-        bar.classList.add('pwrt-expanded'); // ensure the error message is visible
+        const msg = err.message || String(err);
+        console.error('[PWRT] Report generation failed:', err);
+        // Show error prominently inside the loading overlay (always full-screen, always visible)
+        const errEl   = document.getElementById('pwrt-loading-err');
+        const titleEl = document.getElementById('pwrt-loading-title');
+        const spinner = document.getElementById('pwrt-loading-spinner');
+        const closeBtn= document.getElementById('pwrt-loading-close');
+        const statusEl= document.getElementById('pwrt-loading-status');
+        if (errEl)    { errEl.textContent = msg; errEl.style.display = 'block'; }
+        if (titleEl)  titleEl.textContent = '⚠ Report failed';
+        if (spinner)  spinner.style.display = 'none';
+        if (statusEl) statusEl.style.display = 'none';
+        if (closeBtn) {
+          closeBtn.style.display = 'inline-block';
+          closeBtn.onclick = function() {
+            const lo = document.getElementById('pwrt-loading-overlay');
+            if (lo) lo.style.display = 'none';
+            // Reset loading overlay for next attempt
+            if (errEl)    { errEl.style.display = 'none'; errEl.textContent = ''; }
+            if (titleEl)  titleEl.textContent = 'Generating report…';
+            if (spinner)  spinner.style.display = 'block';
+            if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = 'Querying the Torn API…'; }
+            if (closeBtn) closeBtn.style.display = 'none';
+          };
+        }
+        showErr(msg);
+        bar.classList.add('pwrt-expanded');
       } finally {
         runBtn.disabled = false;
-        if (loadingEl) loadingEl.style.display = 'none';
+        // Only hide loading overlay on success; on error it stays visible for the user to read
+        if (reportOk && loadingEl) loadingEl.style.display = 'none';
       }
     });
   }
