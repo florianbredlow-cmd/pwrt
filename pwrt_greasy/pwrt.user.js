@@ -1119,7 +1119,7 @@
   display:flex;align-items:center;gap:12px;flex-wrap:wrap;
   overflow:hidden;max-height:0;transition:max-height .3s ease,padding-top .3s ease;padding-top:0;
 }
-#pwrt-trigger-bar.pwrt-expanded #pwrt-bar-content { max-height:200px;padding-top:8px; }
+#pwrt-trigger-bar.pwrt-expanded #pwrt-bar-content { max-height:320px;padding-top:8px; }
 #pwrt-key-input {
   padding:6px 10px;background:#12122a;border:1px solid #334;border-radius:4px;
   color:#e0e0e0;font-size:13px;width:240px;outline:none;
@@ -1290,22 +1290,26 @@
     document.body.appendChild(overlay);
 
     // Trigger bar
-    const pdaKey    = getPDAApiKey();
-    const savedKey  = pdaKey ?? storeGet(KEY_STORE, '');
-    const savedDate = storeGet(DATE_STORE, '') || todayStr();
+    const pdaKey      = getPDAApiKey();
+    const overrideKey = storeGet(KEY_STORE, '');
+    const savedDate   = storeGet(DATE_STORE, '') || todayStr();
 
     // Is this a first-time install (no key stored anywhere)?
-    const isFirstRun = !pdaKey && !storeGet(KEY_STORE, '');
+    const isFirstRun = !pdaKey && !overrideKey;
 
     // Build key section depending on context
     let keySection;
     if (pdaKey) {
-      // Torn PDA injected the key via @grant torn_api_key – nothing to enter
-      keySection = `<span id="pwrt-pda-key-info" style="background:#1a2a1a;border:1px solid #336633;border-radius:4px;padding:5px 10px;color:#88dd88;font-size:12px">🔑 API key provided by Torn PDA</span>`;
+      // Torn PDA injected a key. Also offer an override input for Full Access keys.
+      keySection = `
+        <span id="pwrt-pda-key-info" style="background:#1a2a1a;border:1px solid #336633;border-radius:4px;padding:5px 10px;color:#88dd88;font-size:12px">🔑 PDA key active</span>
+        <input id="pwrt-key-input" type="password" placeholder="Full Access key override (optional)" value="${esc(overrideKey)}" autocomplete="off">
+        <button id="pwrt-save-key">Save</button>
+        <span id="pwrt-pda-key-hint" style="color:#778;font-size:11px">Falls dein PDA-Key nur \"Limited\" ist, trage hier einen Full-Access-Key ein, um die detaillierte Log-Analyse zu aktivieren.</span>`;
     } else {
       // Manual key entry (desktop extension or Torn PDA without auto-inject)
       keySection = `
-        <input id="pwrt-key-input" type="password" placeholder="Torn API Key" value="${esc(savedKey)}" autocomplete="off">
+        <input id="pwrt-key-input" type="password" placeholder="Torn API Key" value="${esc(overrideKey)}" autocomplete="off">
         <button id="pwrt-save-key">Save Key</button>`;
     }
 
@@ -1432,7 +1436,10 @@
       // ── Validation ────────────────────────────────────────────────────────
       const pdaKeyNow = getPDAApiKey();
       const keyInput  = document.getElementById('pwrt-key-input');
-      const key       = (pdaKeyNow || (keyInput ? keyInput.value.trim() : '')).trim();
+      const manualKey = keyInput ? keyInput.value.trim() : '';
+      // Manual override takes priority (user explicitly entered a Full Access key);
+      // otherwise fall back to the Torn PDA key.
+      const key       = manualKey || pdaKeyNow || '';
       const dateStr   = (document.getElementById('pwrt-date-input')?.value ?? '').trim();
 
       if (!key) {
@@ -1476,7 +1483,11 @@
 
       } catch (err) {
         console.error('[PWRT] Report generation failed:', err);
-        showLoadingErr(esc(err.message || String(err)));
+        const _masked = key ? ('\u2022'.repeat(Math.max(0, key.length - 4)) + key.slice(-4)) : '(kein Key)';
+        showLoadingErr(
+          esc(err.message || String(err)) +
+          '<br><span style="color:#886;font-size:11px;margin-top:6px;display:block">Verwendeter Key: ' + esc(_masked) + '</span>'
+        );
         bar.classList.add('pwrt-expanded');
       } finally {
         _runBtn.disabled = false;
