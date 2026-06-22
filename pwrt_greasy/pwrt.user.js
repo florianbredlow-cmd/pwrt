@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PWRT – Personal War Report Tool
 // @namespace    https://greasyfork.org/scripts/pwrt
-// @version      1.1.1
+// @version      1.1.2
 // @description  Personal War Report Tool for Torn – shows your ranked-war statistics on the Factions page. Works in Torn PDA (iOS/Android) and desktop browsers with Tampermonkey/Violentmonkey. On first use you will be prompted for your Torn API key (Limited access or higher).
 // @author       PWRT
 // @homepageURL  https://github.com/flotomat/pwrt
@@ -211,6 +211,11 @@
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
+  // ── Sanitize API key – keep only alphanumeric chars (Torn key format) ──────
+  function sanitizeKey(k) {
+    return typeof k === 'string' ? k.replace(/[^A-Za-z0-9]/g, '') : '';
+  }
+
   // ── Torn PDA API key detection ──────────────────────────────
   // Primary: Torn PDA replaces ###PDA-APIKEY### in the source at inject time.
   // If PDA_INJECTED_KEY differs from _PDA_KEY_MARKER, the replacement happened.
@@ -232,7 +237,10 @@
     if (typeof raw !== 'string') return null;
     const trimmed = raw.trim();
     // Reject if PDA didn't actually replace the marker
-    return trimmed === _PDA_KEY_MARKER || trimmed === '' ? null : trimmed;
+    if (trimmed === _PDA_KEY_MARKER || trimmed === '') return null;
+    // Strip any stray non-alphanumeric characters injected by PDA
+    const sanitized = sanitizeKey(trimmed);
+    return sanitized || null;
   }
 
   // ── Player info ─────────────────────────────────────────────
@@ -1035,10 +1043,14 @@
   }
 
   // ── Orchestration ────────────────────────────────────────────
-  async function runReport(key, dateStr, onStatus) {
-    onStatus('Checking API key…');
-    const [accessLevel, keyErr] = await checkKeyPermissions(key);
-    if (keyErr) throw new Error(keyErr);
+  async function runReport(key, dateStr, onStatus, preCheckedLevel = null) {
+    let accessLevel = preCheckedLevel;
+    if (!accessLevel) {
+      onStatus('Checking API key…');
+      const [lvl, keyErr] = await checkKeyPermissions(key);
+      if (keyErr) throw new Error(keyErr);
+      accessLevel = lvl;
+    }
 
     onStatus('Fetching player info…');
     const [playerId, factionId] = await getPlayerInfo(key);
@@ -1300,12 +1312,12 @@
     // Build key section depending on context
     let keySection;
     if (pdaKey) {
-      // Torn PDA injected a key. Also offer an override input for Full Access keys.
+      // Torn PDA injected a key.
+      // Input field is hidden initially; shown by async check below if key is only Limited.
       keySection = `
-        <span id="pwrt-pda-key-info" style="background:#1a2a1a;border:1px solid #336633;border-radius:4px;padding:5px 10px;color:#88dd88;font-size:12px">🔑 PDA key active</span>
-        <input id="pwrt-key-input" type="password" placeholder="Full Access key override (optional)" value="${esc(overrideKey)}" autocomplete="off">
-        <button id="pwrt-save-key">Save</button>
-        <span id="pwrt-pda-key-hint" style="color:#778;font-size:11px">Falls dein PDA-Key nur \"Limited\" ist, trage hier einen Full-Access-Key ein, um die detaillierte Log-Analyse zu aktivieren.</span>`;
+        <span id="pwrt-pda-key-info" style="background:#1a2a1a;border:1px solid #336633;border-radius:4px;padding:5px 10px;color:#88dd88;font-size:12px">🔑 PDA-Key wird geprüft…</span>
+        <input id="pwrt-key-input" type="password" placeholder="Full-Access-Key (optional)" value="" autocomplete="off" style="display:none">
+        <span id="pwrt-pda-key-hint" style="color:#778;font-size:11px;display:none">Dein PDA-Key hat nur Limited-Zugriff. Für die detaillierte Log-Analyse trage hier einen Full-Access-Key ein.</span>`;
     } else {
       // Manual key entry (desktop extension or Torn PDA without auto-inject)
       keySection = `
@@ -1367,6 +1379,33 @@
       }
     }
     insertBar();
+
+    // ── Async PDA key level check ──────────────────────────────────────────
+    // Determines whether to hide the override input (full access) or show it (limited).
+    if (pdaKey) {
+      (async () => {
+        const badge = document.getElementById('pwrt-pda-key-info');
+        try {
+          const [level] = await checkKeyPermissions(pdaKey);
+          const inp  = document.getElementById('pwrt-key-input');
+          const hint = document.getElementById('pwrt-pda-key-hint');
+          if (level === 'full') {
+            if (badge) { badge.textContent = '🔑 PDA Full-Access-Key aktiv'; }
+            // Input stays hidden – no override needed
+          } else {
+            // limited or unknown → show override field
+            if (badge) badge.textContent = '🔑 PDA-Key aktiv (Limited)';
+            if (inp)  inp.style.display  = '';
+            if (hint) hint.style.display = '';
+            bar.classList.add('pwrt-expanded'); // expand so user sees the hint
+          }
+        } catch (_) {
+          if (badge) badge.textContent = '🔑 PDA-Key (Prüfung fehlgeschlagen)';
+          const inp = document.getElementById('pwrt-key-input');
+          if (inp) inp.style.display = ''; // show field as fallback
+        }
+      })();
+    }
 
     // Auto-expand on first install so the user sees the setup prompt
     if (isFirstRun) {
@@ -1433,19 +1472,42 @@
         }
       }
 
-      // ── Validation ────────────────────────────────────────────────────────
-      const pdaKeyNow = getPDAApiKey();
+      // ── Key resolution ─────────────────────────────────────────────────────
+      const pdaKeyNow = getPDAApiKey(); // already sanitized by getPDAApiKey()
       const keyInput  = document.getElementById('pwrt-key-input');
-      const manualKey = keyInput ? keyInput.value.trim() : '';
-      // Manual override takes priority (user explicitly entered a Full Access key);
-      // otherwise fall back to the Torn PDA key.
-      const key       = manualKey || pdaKeyNow || '';
+      const manualKey = sanitizeKey(keyInput ? keyInput.value : '');
       const dateStr   = (document.getElementById('pwrt-date-input')?.value ?? '').trim();
 
-      if (!key) {
-        showLoadingErr('No API key found.<br>Enter your Torn API key in the field and click <em>Save Key</em>.');
+      let key = '';
+      let keySource = 'unknown';
+      let preCheckedLevel = null;
+
+      if (manualKey) {
+        // Validate the manually entered key before proceeding
+        setStatus('Prüfe eingegebenen Key…');
+        const [manLevel, manErr] = await checkKeyPermissions(manualKey);
+        if (manLevel) {
+          key = manualKey;
+          keySource = 'manually entered';
+          preCheckedLevel = manLevel;
+        } else if (pdaKeyNow) {
+          // Invalid manual key → fall back silently to PDA key
+          key = pdaKeyNow;
+          keySource = 'Torn PDA (override invalid: ' + (manErr || '?') + ')';
+          preCheckedLevel = null;
+        } else {
+          showLoadingErr('Eingegebener Key ungültig: ' + esc(manErr || 'unbekannter Fehler') + '<br>Kein PDA-Key als Fallback verfügbar.');
+          return;
+        }
+      } else if (pdaKeyNow) {
+        key = pdaKeyNow;
+        keySource = 'Torn PDA';
+        preCheckedLevel = null;
+      } else {
+        showLoadingErr('Kein API-Key gefunden.<br>Trage deinen Torn API-Key in das Feld ein.');
         return;
       }
+
       if (!dateStr) {
         showLoadingErr('Please enter a date (DD.MM.YYYY).');
         return;
@@ -1465,7 +1527,7 @@
       try {
         const timeoutP = new Promise((_, rej) =>
           setTimeout(() => rej(new Error('Report timed out after 60 s. Check your connection.')), 60000));
-        const html = await Promise.race([runReport(key, dateStr, setStatus), timeoutP]);
+        const html = await Promise.race([runReport(key, dateStr, setStatus, preCheckedLevel), timeoutP]);
 
         overlay.innerHTML = html;
         overlay.classList.add('active');
@@ -1483,12 +1545,11 @@
 
       } catch (err) {
         console.error('[PWRT] Report generation failed:', err);
-        const _masked = key ? ('\u2022'.repeat(Math.max(0, key.length - 4)) + key.slice(-4)) : '(no API key)';
-        const _src    = manualKey ? 'manually entered' : (pdaKeyNow ? 'Torn PDA' : 'unknown');
+        const _masked = key ? ('\u2022'.repeat(Math.max(0, key.length - 4)) + key.slice(-4)) : '(kein Key)';
         showLoadingErr(
           esc(err.message || String(err)) +
           '<br><span style="color:#886;font-size:11px;margin-top:6px;display:block">' +
-          'Used Key: ' + esc(_masked) + ' &nbsp;·&nbsp; Source: ' + esc(_src) +
+          'Verwendeter Key: ' + esc(_masked) + ' &nbsp;·&nbsp; Quelle: ' + esc(keySource) +
           '</span>'
         );
         bar.classList.add('pwrt-expanded');
