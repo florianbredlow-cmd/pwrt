@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PWRT – Personal War Report Tool
 // @namespace    https://greasyfork.org/scripts/pwrt
-// @version      1.1.3
+// @version      1.1.4
 // @description  Personal War Report Tool for Torn – shows your ranked-war statistics on the Factions page. Works in Torn PDA (iOS/Android) and desktop browsers with Tampermonkey/Violentmonkey. On first use you will be prompted for your Torn API key (Limited access or higher).
 // @author       PWRT
 // @homepageURL  https://github.com/flotomat/pwrt
@@ -220,6 +220,9 @@
     return typeof k === 'string' ? k.replace(/[^A-Za-z0-9]/g, '') : '';
   }
 
+  // ── Safe object check (typeof null === 'object' in JS!) ─────────────────────
+  function isObj(v) { return v !== null && typeof v === 'object'; }
+
   // ── Torn PDA API key detection ──────────────────────────────
   // Primary: Torn PDA replaces ###PDA-APIKEY### in the source at inject time.
   // If PDA_INJECTED_KEY differs from _PDA_KEY_MARKER, the replacement happened.
@@ -429,7 +432,7 @@
   function computeAttackerStats(incoming) {
     const map = {};
     for (const atk of incoming) {
-      const att   = typeof atk.attacker === 'object' ? atk.attacker : {};
+      const att   = isObj(atk.attacker) ? atk.attacker : {};
       const id    = String(att.id ?? atk.attacker_id ?? 'unknown');
       const name  = att.name ?? atk.attacker_name ?? '?';
       const resp  = parseFloat(atk.respect_gain ?? atk.respect ?? 0);
@@ -540,7 +543,7 @@
 
           let attName = null, attId = null;
           if (matched) {
-            const att = typeof matched.attacker === 'object' ? matched.attacker : {};
+            const att = isObj(matched.attacker) ? matched.attacker : {};
             attName = att.name ?? matched.attacker_name ?? null;
             attId   = att.id   ?? matched.attacker_id   ?? null;
           }
@@ -735,11 +738,11 @@
 
     // Timeline JSON for JS
     const tlOut = outgoing.map(a => {
-      const dfn = typeof a.defender === 'object' ? a.defender : {};
+      const dfn = isObj(a.defender) ? a.defender : {};
       return { ts: atkTs(a), respect: parseFloat(a.respect_gain ?? a.respect ?? 0), opponent: dfn.name ?? a.defender_name ?? '?' };
     });
     const tlInc = incoming.map(a => {
-      const att = typeof a.attacker === 'object' ? a.attacker : {};
+      const att = isObj(a.attacker) ? a.attacker : {};
       return { ts: atkTs(a), respect: parseFloat(a.respect_gain ?? a.respect ?? 0), attacker: att.name ?? a.attacker_name ?? '?' };
     });
     const tlJson  = JSON.stringify({ warStart, warEnd, travel: timeline.travel, hospital: timeline.hospital, active: timeline.active, outgoing: tlOut, incoming: tlInc });
@@ -826,7 +829,7 @@
         ${outgoing.map((atk, idx) => {
           const ts      = atkTs(atk);
           const code    = atk.code ?? '';
-          const dfn     = typeof atk.defender === 'object' ? atk.defender : {};
+          const dfn     = isObj(atk.defender) ? atk.defender : {};
           const defName = esc(dfn.name ?? atk.defender_name ?? '?');
           const defId   = dfn.id ?? atk.defender_id ?? '';
           const rep     = parseFloat(atk.respect_gain ?? atk.respect ?? 0);
@@ -849,7 +852,7 @@
         ${incoming.map(atk => {
           const ts      = atkTs(atk);
           const code    = atk.code ?? '';
-          const att     = typeof atk.attacker === 'object' ? atk.attacker : {};
+          const att     = isObj(atk.attacker) ? atk.attacker : {};
           const attName = esc(att.name ?? atk.attacker_name ?? '?');
           const attId   = att.id ?? atk.attacker_id ?? '';
           const rep     = parseFloat(atk.respect_gain ?? atk.respect ?? 0);
@@ -1077,8 +1080,8 @@
     for (const atk of allAttacks) {
       const rw = atk.is_ranked_war ?? atk.ranked_war ?? atk.modifiers?.ranked_war ?? false;
       if (!rw) continue;
-      const att   = typeof atk.attacker === 'object' ? atk.attacker : {};
-      const dfn   = typeof atk.defender === 'object' ? atk.defender : {};
+      const att   = isObj(atk.attacker) ? atk.attacker : {};
+      const dfn   = isObj(atk.defender) ? atk.defender : {};
       const attId = att.id ?? atk.attacker_id;
       const dfnId = dfn.id ?? atk.defender_id;
       if (String(attId) === String(playerId)) outgoing.push(atk);
