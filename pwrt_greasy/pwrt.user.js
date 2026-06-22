@@ -1483,10 +1483,13 @@
 
       } catch (err) {
         console.error('[PWRT] Report generation failed:', err);
-        const _masked = key ? ('\u2022'.repeat(Math.max(0, key.length - 4)) + key.slice(-4)) : '(kein Key)';
+        const _masked = key ? ('\u2022'.repeat(Math.max(0, key.length - 4)) + key.slice(-4)) : '(no API key)';
+        const _src    = manualKey ? 'manually entered' : (pdaKeyNow ? 'Torn PDA' : 'unknown');
         showLoadingErr(
           esc(err.message || String(err)) +
-          '<br><span style="color:#886;font-size:11px;margin-top:6px;display:block">Verwendeter Key: ' + esc(_masked) + '</span>'
+          '<br><span style="color:#886;font-size:11px;margin-top:6px;display:block">' +
+          'Used Key: ' + esc(_masked) + ' &nbsp;·&nbsp; Source: ' + esc(_src) +
+          '</span>'
         );
         bar.classList.add('pwrt-expanded');
       } finally {
