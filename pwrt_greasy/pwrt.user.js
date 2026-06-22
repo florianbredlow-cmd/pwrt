@@ -130,16 +130,15 @@
   async function checkKeyPermissions(key) {
     if (!key) return [null, 'No API key entered.'];
     let data;
-    // Use V1 key endpoint – simpler, known-good structure.
-    // V1: https://api.torn.com/key/?selections=info&key=xxx
+    // Use V2 key/info endpoint – matches core.py implementation.
+    // V2: https://api.torn.com/v2/key/info?key=xxx
     // Response: { "info": { "access": { "level": 3 } } }
     try {
-      data = await gmFetch(buildUrl(`${API_V1}/key/`, { selections: 'info', key }));
+      data = await gmFetch(buildUrl(`${API_V2}/key/info`, { key }));
     } catch (e) {
       return [null, 'Network error during key check: ' + e.message];
     }
     if (data.error) return [null, `API error ${data.error.code}: ${data.error.error}`];
-    // Handle V1 structure (info.access.level) AND V2 structure (key.access_level) defensively
     const level = parseInt(
       data.info?.access?.level ??
       data.key?.access_level  ??
