@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PWRT – Personal War Report Tool
 // @namespace    https://greasyfork.org/scripts/pwrt
-// @version      1.1.2
+// @version      1.1.3
 // @description  Personal War Report Tool for Torn – shows your ranked-war statistics on the Factions page. Works in Torn PDA (iOS/Android) and desktop browsers with Tampermonkey/Violentmonkey. On first use you will be prompted for your Torn API key (Limited access or higher).
 // @author       PWRT
 // @homepageURL  https://github.com/flotomat/pwrt
@@ -77,12 +77,25 @@
   }
 
   // ── GM_xmlhttpRequest → Promise ────────────────────────────
-  // Priority: 1) GM_xmlhttpRequest (Tampermonkey/Violentmonkey)
-  //           2) PDA_httpGet via flutter_inappwebview (Torn PDA – bypasses CORS)
+  // Priority: 1) PDA_httpGet via flutter_inappwebview (Torn PDA – native, reliable)
+  //           2) GM_xmlhttpRequest (Tampermonkey/Violentmonkey on desktop)
   //           3) fetch() browser fallback
+  // NOTE: Torn PDA provides GM_xmlhttpRequest but it may be unstable for parallel
+  // requests inside the webview. PDA_httpGet is always preferred when in PDA.
   function gmFetch(url) {
     return new Promise((resolve, reject) => {
-      if (typeof GM_xmlhttpRequest === 'function') {
+      if (isInTornPDA()) {
+        // Torn PDA native HTTP handler – reliable, bypasses webview CORS
+        waitForPlatformReady().then(function() {
+          return window.flutter_inappwebview.callHandler('PDA_httpGet', url, {});
+        }).then(function(r) {
+          if (r.status >= 400) { reject(new Error('HTTP ' + r.status)); return; }
+          try { resolve(JSON.parse(r.responseText)); }
+          catch (e) { reject(new Error('Invalid JSON: ' + String(r.responseText).slice(0, 120))); }
+        }).catch(function(e) {
+          reject(e instanceof Error ? e : new Error('PDA request failed: ' + String(e)));
+        });
+      } else if (typeof GM_xmlhttpRequest === 'function') {
         GM_xmlhttpRequest({
           method: 'GET',
           url,
@@ -91,18 +104,9 @@
             try { resolve(JSON.parse(r.responseText)); }
             catch (e) { reject(new Error('Invalid JSON: ' + r.responseText.slice(0, 120))); }
           },
-          onerror(r) { reject(new Error('Network error: ' + (r.statusText || r.status))); },
+          onerror(r) { reject(new Error('Network error: ' + (r?.statusText || r?.status || r?.error || 'request failed'))); },
           ontimeout()  { reject(new Error('Request timed out')); },
         });
-      } else if (isInTornPDA()) {
-        // Torn PDA native HTTP handler – must wait for platform readiness first
-        waitForPlatformReady().then(function() {
-          return window.flutter_inappwebview.callHandler('PDA_httpGet', url, {});
-        }).then(function(r) {
-          if (r.status >= 400) { reject(new Error('HTTP ' + r.status)); return; }
-          try { resolve(JSON.parse(r.responseText)); }
-          catch (e) { reject(new Error('Invalid JSON: ' + String(r.responseText).slice(0, 120))); }
-        }).catch(reject);
       } else {
         // Plain browser fallback (may fail due to CORS on api.torn.com)
         fetch(url, { credentials: 'omit' })
@@ -244,11 +248,10 @@
   }
 
   // ── Player info ─────────────────────────────────────────────
+  // Sequential (not parallel) to avoid concurrent-request issues in Torn PDA.
   async function getPlayerInfo(key) {
-    const [basic, facData] = await Promise.all([
-      apiV2('user/basic', {}, key),
-      apiV2('user/faction', {}, key),
-    ]);
+    const basic   = await apiV2('user/basic',   {}, key);
+    const facData = await apiV2('user/faction',  {}, key);
     const playerId  = basic.profile?.id ?? null;
     const fac       = facData.faction ?? {};
     const factionId = fac.faction_id ?? fac.id ?? null;
@@ -1062,12 +1065,11 @@
     const [warStart, oppId, oppName] = await getWarStartAndOpponent(searchTs, factionId, key);
     if (!warStart) throw new Error(`No ranked-war start event found on or before ${dateStr}. Enter a date during or just after the war.`);
 
-    onStatus('Fetching war end, result and attacks…');
-    const [warEnd, warResult, allAttacks] = await Promise.all([
-      findWarEnd(warStart, key),
-      getWarResult(warStart, oppId, key),
-      getAttacksV2(warStart, warStart + 123 * 3600 + 3600, key),
-    ]);
+    onStatus('Fetching war end and result…');
+    const warEnd   = await findWarEnd(warStart, key);
+    const warResult = await getWarResult(warStart, oppId, key);
+    onStatus('Fetching attacks…');
+    const allAttacks = await getAttacksV2(warStart, warStart + 123 * 3600 + 3600, key);
 
     onStatus(`Filtering ${allAttacks.length} attacks…`);
 
@@ -1382,11 +1384,14 @@
 
     // ── Async PDA key level check ──────────────────────────────────────────
     // Determines whether to hide the override input (full access) or show it (limited).
+    // Result is cached so runReport can skip the key check entirely.
+    let _pdaKeyLevelCache = null;
     if (pdaKey) {
       (async () => {
         const badge = document.getElementById('pwrt-pda-key-info');
         try {
           const [level] = await checkKeyPermissions(pdaKey);
+          _pdaKeyLevelCache = level;
           const inp  = document.getElementById('pwrt-key-input');
           const hint = document.getElementById('pwrt-pda-key-hint');
           if (level === 'full') {
@@ -1400,6 +1405,7 @@
             bar.classList.add('pwrt-expanded'); // expand so user sees the hint
           }
         } catch (_) {
+          _pdaKeyLevelCache = null;
           if (badge) badge.textContent = '🔑 PDA-Key (Prüfung fehlgeschlagen)';
           const inp = document.getElementById('pwrt-key-input');
           if (inp) inp.style.display = ''; // show field as fallback
@@ -1494,7 +1500,7 @@
           // Invalid manual key → fall back silently to PDA key
           key = pdaKeyNow;
           keySource = 'Torn PDA (override invalid: ' + (manErr || '?') + ')';
-          preCheckedLevel = null;
+          preCheckedLevel = _pdaKeyLevelCache; // use cached result if available
         } else {
           showLoadingErr('Eingegebener Key ungültig: ' + esc(manErr || 'unbekannter Fehler') + '<br>Kein PDA-Key als Fallback verfügbar.');
           return;
@@ -1502,7 +1508,7 @@
       } else if (pdaKeyNow) {
         key = pdaKeyNow;
         keySource = 'Torn PDA';
-        preCheckedLevel = null;
+        preCheckedLevel = _pdaKeyLevelCache; // use cached result – avoids redundant API call
       } else {
         showLoadingErr('Kein API-Key gefunden.<br>Trage deinen Torn API-Key in das Feld ein.');
         return;
