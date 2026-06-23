@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PWRT – Personal War Report Tool
 // @namespace    https://greasyfork.org/scripts/pwrt
-// @version      1.1.9
+// @version      1.1.10
 // @description  Personal War Report Tool for Torn – shows your ranked-war statistics on the Factions page. Works in Torn PDA (iOS/Android) and desktop browsers with Tampermonkey/Violentmonkey. On first use you will be prompted for your Torn API key (Limited access or higher).
 // @author       PWRT
 // @homepageURL  https://github.com/flotomat/pwrt
@@ -774,14 +774,14 @@
       <div class="sb-net"><div class="lbl">Net Respect</div><div class="val ${netCls}">${netRep >= 0 ? '+' : ''}${nf(netRep)}</div></div>
     </div>
   </div>
-</div>
-<div class="pwrt-body">
   <div class="tab-nav">
     <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
     <button class="tab-btn" data-tab="fights">Fight Details</button>
     <button class="tab-btn" data-tab="attackers">Attacker Analysis</button>
     <button class="tab-btn" data-tab="heatmap">Activity Heatmap</button>
   </div>
+</div>
+<div class="pwrt-body">
 
   <!-- TAB: Dashboard -->
   <div id="pwrt-tab-dashboard" class="tab-pane active">
@@ -1196,7 +1196,7 @@
 .sb-net .lbl{font-size:11px;color:#aaa;text-transform:uppercase}
 .sb-net .val{font-size:20px;font-weight:bold;margin-top:2px}
 .green{color:#66dd88}.red{color:#ff6666}.yellow{color:#ffcc44}
-.tab-nav{display:flex;gap:2px;border-bottom:2px solid #334;margin-bottom:16px;margin-top:12px}
+.tab-nav{display:flex;gap:2px;border-bottom:2px solid #334;padding:0 16px;background:#1a1a2e}
 .tab-btn{padding:8px 24px;background:#252545;color:#aaa;border:1px solid #334;border-bottom:none;border-radius:4px 4px 0 0;cursor:pointer;font-size:13px;transition:background .2s}
 .tab-btn.active{background:#303060;color:#aaddff;border-color:#5577cc}
 .tab-btn:hover:not(.active){background:#2a2a4a;color:#ccc}
