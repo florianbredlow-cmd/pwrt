@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PWRT – Personal War Report Tool
 // @namespace    https://greasyfork.org/scripts/pwrt
-// @version      1.1.8
+// @version      1.1.9
 // @description  Personal War Report Tool for Torn – shows your ranked-war statistics on the Factions page. Works in Torn PDA (iOS/Android) and desktop browsers with Tampermonkey/Violentmonkey. On first use you will be prompted for your Torn API key (Limited access or higher).
 // @author       PWRT
 // @homepageURL  https://github.com/flotomat/pwrt
@@ -750,17 +750,16 @@
 <div id="pwrt-close-btn" style="position:absolute;top:8px;right:12px;cursor:pointer;font-size:22px;color:#aaa;z-index:10" title="Close">✕</div>
 <div class="pwrt-header">
   <div class="pwrt-hdr-toggle" id="pwrt-hdr-toggle">
-    <div style="display:flex;align-items:baseline;gap:10px;min-width:0;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:8px">
       <h1 style="margin:0;font-size:15px;white-space:nowrap">⚔ PWRT</h1>
-      <span style="color:#aaa;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(oppName ?? '?')}${oppId ? ' &nbsp;<span style="font-size:10px;color:#668">ID&nbsp;' + esc(oppId) + '</span>' : ''}</span>
+      <span id="pwrt-hdr-arrow" style="font-size:11px;color:#5577cc;display:inline-block;transition:transform .25s">▲</span>
     </div>
     <div class="pwrt-hdr-compact">
       <span style="font-size:11px;color:#778">Result:</span>
-      <span class="val ${resCls}" style="font-size:14px;font-weight:bold">${esc(res)}</span>
+      <span class="val ${resCls}" style="font-size:13px;font-weight:bold">${esc(res)}</span>
       <span style="color:#445;margin:0 2px">|</span>
       <span style="font-size:11px;color:#778">Net:</span>
-      <span class="val ${netCls}" style="font-size:14px;font-weight:bold">${netRep >= 0 ? '+' : ''}${nf(netRep)}</span>
-      <span id="pwrt-hdr-arrow" style="font-size:11px;color:#5577cc;margin-left:6px;display:inline-block;transition:transform .25s">▲</span>
+      <span class="val ${netCls}" style="font-size:13px;font-weight:bold">${netRep >= 0 ? '+' : ''}${nf(netRep)}</span>
     </div>
   </div>
   <div id="pwrt-hdr-detail" class="pwrt-hdr-detail">
@@ -1183,9 +1182,9 @@
 #pwrt-overlay h1{color:#e0c060;margin:0 0 2px}
 #pwrt-overlay h2{color:#aaddff;border-bottom:1px solid #334;padding-bottom:4px;margin-top:20px;margin-bottom:12px}
 .pwrt-header{flex-shrink:0;z-index:50;background:#1a1a2e;border-bottom:2px solid #334455;}
-.pwrt-hdr-toggle{display:flex;justify-content:space-between;align-items:center;padding:8px 44px 6px 16px;cursor:pointer;user-select:none;gap:12px;}
+.pwrt-hdr-toggle{display:flex;flex-direction:column;justify-content:center;padding:6px 44px 6px 16px;cursor:pointer;user-select:none;gap:2px;}
 .pwrt-hdr-toggle:hover{background:rgba(255,255,255,.03)}
-.pwrt-hdr-compact{display:flex;align-items:center;gap:8px;font-size:13px;flex-shrink:0}
+.pwrt-hdr-compact{display:flex;align-items:center;gap:8px;font-size:13px;}
 .pwrt-hdr-detail{overflow:hidden;max-height:300px;transition:max-height .28s ease,padding .28s ease;padding:0 16px 8px}
 .pwrt-hdr-detail.collapsed{max-height:0!important;padding-top:0;padding-bottom:0}
 .pwrt-body{flex:1;overflow-y:auto;min-height:0;padding:0 16px 24px}
@@ -1242,7 +1241,7 @@
 .vtl-bar-out{position:absolute;left:0;height:5px;min-width:3px;background:#44cc66;border-radius:0 3px 3px 0;cursor:pointer;transform:translateY(-2px);z-index:5;transition:opacity .15s}
 .vtl-bar-in:hover,.vtl-bar-out:hover{opacity:.6}
 .vtl-tick{position:absolute;left:2px;transform:translateY(-50%);font-size:10px;color:#889;white-space:nowrap;pointer-events:none}
-.vtl-date-label{position:absolute;left:18px;transform:translateY(-50%);font-size:11px;color:#7799cc;font-weight:bold;white-space:nowrap;pointer-events:none}
+.vtl-date-label{position:absolute;left:2px;transform:translateY(-50%);font-size:10px;color:#7799cc;font-weight:bold;white-space:nowrap;pointer-events:none;max-width:82px;overflow:hidden;text-overflow:clip}
 .dash-stats{display:flex;flex-wrap:wrap;gap:12px;margin:20px 0 8px}
 .ds{background:#232340;border:1px solid #334;border-radius:7px;padding:11px 18px;min-width:160px;flex:1}
 .ds .ds-lbl{font-size:11px;color:#778;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
@@ -1377,45 +1376,77 @@
     });
     const allRe = TL.outgoing.map(a => a.respect).concat(TL.incoming.map(a => a.respect));
     const maxRe = Math.max.apply(null, allRe.concat([0.01]));
-    const WIN_GAP = 3600; // 1 hour – gap that starts a new label window
-    // Incoming → LEFT column: colored bar from right, window-cumulative label to the left of bar
-    let incWinCumul = 0, incLastTs = null;
-    TL.incoming.forEach(a => {
-      if (incLastTs !== null && a.ts - incLastTs > WIN_GAP) incWinCumul = 0;
-      incWinCumul += a.respect;
-      incLastTs = a.ts;
-      const bw = Math.max(a.respect / maxRe * 90, 1);
-      const wrapper = document.createElement('div');
-      wrapper.style.cssText = 'position:absolute;right:0;top:' + vpct(a.ts) + '%;width:' + bw + '%;display:flex;align-items:center;transform:translateY(-50%);z-index:5;cursor:pointer;overflow:visible';
-      const lbl = document.createElement('span');
-      lbl.style.cssText = 'font-size:9px;color:#ff9999;white-space:nowrap;padding-right:2px;flex-shrink:0;line-height:1';
-      lbl.textContent = incWinCumul.toFixed(1);
-      const barEl = document.createElement('div');
-      barEl.style.cssText = 'height:6px;background:#dd4444;border-radius:3px 0 0 3px;flex:1;min-width:3px';
-      wrapper.appendChild(lbl);
-      wrapper.appendChild(barEl);
-      addTip(wrapper, '<b>💥 Incoming</b><br>Attacker: ' + esc(a.attacker) + '<br><span style="color:#ff6666">-' + a.respect.toFixed(2) + ' respect</span><br>Window total: <span style="color:#ff6666">-' + incWinCumul.toFixed(2) + '</span><br>' + fmtUtc(a.ts));
-      leftEl.appendChild(wrapper);
-    });
-    // Outgoing → RIGHT column: colored bar from left, window-cumulative label to the right of bar
-    let outWinCumul = 0, outLastTs = null;
-    TL.outgoing.forEach(a => {
-      if (outLastTs !== null && a.ts - outLastTs > WIN_GAP) outWinCumul = 0;
-      outWinCumul += a.respect;
-      outLastTs = a.ts;
-      const bw = Math.max(a.respect / maxRe * 90, 1);
-      const wrapper = document.createElement('div');
-      wrapper.style.cssText = 'position:absolute;left:0;top:' + vpct(a.ts) + '%;width:' + bw + '%;display:flex;align-items:center;transform:translateY(-50%);z-index:5;cursor:pointer;overflow:visible';
-      const barEl = document.createElement('div');
-      barEl.style.cssText = 'height:6px;background:#44cc66;border-radius:0 3px 3px 0;flex:1;min-width:3px';
-      const lbl = document.createElement('span');
-      lbl.style.cssText = 'font-size:9px;color:#88ee99;white-space:nowrap;padding-left:2px;flex-shrink:0;line-height:1';
-      lbl.textContent = outWinCumul.toFixed(1);
-      wrapper.appendChild(barEl);
-      wrapper.appendChild(lbl);
-      addTip(wrapper, '<b>⚔ Outgoing</b><br>Opponent: ' + esc(a.opponent) + '<br><span style="color:#66dd88">+' + a.respect.toFixed(2) + ' respect</span><br>Window total: <span style="color:#66dd88">+' + outWinCumul.toFixed(2) + '</span><br>' + fmtUtc(a.ts));
-      rightEl.appendChild(wrapper);
-    });
+    const WIN_GAP = 3600; // 1 hour – gap that separates groups
+
+    // Helper: group an attack array into windows by time gap
+    function makeGroups(attacks) {
+      const groups = [];
+      let cur = null;
+      attacks.forEach(a => {
+        if (!cur || a.ts - cur.lastTs > WIN_GAP) {
+          cur = { attacks: [], total: 0, firstTs: a.ts, lastTs: a.ts };
+          groups.push(cur);
+        }
+        cur.attacks.push(a);
+        cur.total += a.respect;
+        cur.lastTs = a.ts;
+      });
+      return groups;
+    }
+
+    // Helper: render one group of bars into a column element
+    // dir: 'left' (incoming) or 'right' (outgoing)
+    function renderGroup(group, colEl, dir) {
+      const isLeft = dir === 'left';
+      const barColor  = isLeft ? '#dd4444' : '#44cc66';
+      const lblColor  = isLeft ? '#ff9999' : '#88ee99';
+      const borderR   = isLeft ? '3px 0 0 3px' : '0 3px 3px 0';
+      const single    = group.attacks.length === 1;
+
+      group.attacks.forEach(a => {
+        const bw = Math.max(a.respect / maxRe * 90, 1);
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText = 'position:absolute;' + (isLeft ? 'right:0' : 'left:0') + ';top:' + vpct(a.ts) + '%;width:' + bw + '%;display:flex;align-items:center;transform:translateY(-50%);z-index:5;cursor:pointer;overflow:visible';
+        const barEl = document.createElement('div');
+        barEl.style.cssText = 'height:6px;background:' + barColor + ';border-radius:' + borderR + ';flex:1;min-width:3px';
+        if (single) {
+          // Solo bar: show its own value next to it
+          const lbl = document.createElement('span');
+          lbl.style.cssText = 'font-size:9px;color:' + lblColor + ';white-space:nowrap;' + (isLeft ? 'padding-right:2px' : 'padding-left:2px') + ';flex-shrink:0;line-height:1';
+          lbl.textContent = a.respect.toFixed(1);
+          if (isLeft) { wrapper.appendChild(lbl); wrapper.appendChild(barEl); }
+          else        { wrapper.appendChild(barEl); wrapper.appendChild(lbl); }
+        } else {
+          // Grouped bar: no individual label
+          if (isLeft) wrapper.appendChild(barEl);
+          else        wrapper.appendChild(barEl);
+        }
+        const tipSign = isLeft ? '-' : '+';
+        addTip(wrapper,
+          '<b>' + (isLeft ? '💥 Incoming' : '⚔ Outgoing') + '</b><br>' +
+          (isLeft ? 'Attacker: ' + esc(a.attacker) : 'Opponent: ' + esc(a.opponent)) +
+          '<br><span style="color:' + (isLeft ? '#ff6666' : '#66dd88') + '">' + tipSign + a.respect.toFixed(2) + ' respect</span>' +
+          (!single ? '<br>Group total: <span style="color:' + (isLeft ? '#ff6666' : '#66dd88') + '">' + tipSign + group.total.toFixed(2) + '</span>' : '') +
+          '<br>' + fmtUtc(a.ts));
+        colEl.appendChild(wrapper);
+      });
+
+      if (!single) {
+        // One centered group label between first and last bar
+        const midPct = (vpct(group.firstTs) + vpct(group.lastTs)) / 2;
+        const glbl = document.createElement('div');
+        glbl.style.cssText = 'position:absolute;' + (isLeft ? 'right:4px;text-align:right' : 'left:4px;text-align:left') +
+          ';top:' + midPct + '%;transform:translateY(-50%);font-size:9px;color:' + lblColor +
+          ';white-space:nowrap;pointer-events:none;z-index:6;font-weight:bold';
+        glbl.textContent = group.total.toFixed(1);
+        colEl.appendChild(glbl);
+      }
+    }
+
+    // Incoming → LEFT column
+    makeGroups(TL.incoming).forEach(g => renderGroup(g, leftEl, 'left'));
+    // Outgoing → RIGHT column
+    makeGroups(TL.outgoing).forEach(g => renderGroup(g, rightEl, 'right'));
     // Time ticks + date labels – fixed 3h intervals
     const TICK_IV = 10800;
     const firstTick = Math.ceil(wS / TICK_IV) * TICK_IV;
@@ -1424,7 +1455,7 @@
     const wStartDate = fDate(wS);
     lastDate = wStartDate;
     const wStartDl = document.createElement('div');
-    wStartDl.style.cssText = 'position:absolute;left:18px;top:2px;font-size:11px;color:#7799cc;font-weight:bold;white-space:nowrap;pointer-events:none';
+    wStartDl.style.cssText = 'position:absolute;left:2px;top:2px;font-size:10px;color:#7799cc;font-weight:bold;white-space:nowrap;pointer-events:none;max-width:82px;overflow:hidden';
     wStartDl.textContent = wStartDate;
     axisEl.appendChild(wStartDl);
     for (let ts = firstTick; ts <= wE; ts += TICK_IV) {
@@ -1624,7 +1655,7 @@
       <div id="pwrt-bar-toggle">
         <h3>⚔ PWRT</h3>
         <span id="pwrt-toggle-arrow">▼</span>
-        <span style="color:#778;font-size:11px">War Report – tap to open</span>
+        <span style="color:#778;font-size:11px">Personal War Report Tool – tap to open</span>
       </div>
       <div id="pwrt-bar-content">
         ${keySection}
