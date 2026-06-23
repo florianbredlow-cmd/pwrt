@@ -1377,27 +1377,32 @@
     });
     const allRe = TL.outgoing.map(a => a.respect).concat(TL.incoming.map(a => a.respect));
     const maxRe = Math.max.apply(null, allRe.concat([0.01]));
-    // Incoming → LEFT column: colored bar from right, cumulative label to the left of bar
-    let incCumul = 0;
+    const WIN_GAP = 3600; // 1 hour – gap that starts a new label window
+    // Incoming → LEFT column: colored bar from right, window-cumulative label to the left of bar
+    let incWinCumul = 0, incLastTs = null;
     TL.incoming.forEach(a => {
-      incCumul += a.respect;
+      if (incLastTs !== null && a.ts - incLastTs > WIN_GAP) incWinCumul = 0;
+      incWinCumul += a.respect;
+      incLastTs = a.ts;
       const bw = Math.max(a.respect / maxRe * 90, 1);
       const wrapper = document.createElement('div');
       wrapper.style.cssText = 'position:absolute;right:0;top:' + vpct(a.ts) + '%;width:' + bw + '%;display:flex;align-items:center;transform:translateY(-50%);z-index:5;cursor:pointer;overflow:visible';
       const lbl = document.createElement('span');
       lbl.style.cssText = 'font-size:9px;color:#ff9999;white-space:nowrap;padding-right:2px;flex-shrink:0;line-height:1';
-      lbl.textContent = incCumul.toFixed(1);
+      lbl.textContent = incWinCumul.toFixed(1);
       const barEl = document.createElement('div');
       barEl.style.cssText = 'height:6px;background:#dd4444;border-radius:3px 0 0 3px;flex:1;min-width:3px';
       wrapper.appendChild(lbl);
       wrapper.appendChild(barEl);
-      addTip(wrapper, '<b>💥 Incoming</b><br>Attacker: ' + esc(a.attacker) + '<br><span style="color:#ff6666">-' + a.respect.toFixed(2) + ' respect</span><br>Total lost: <span style="color:#ff6666">-' + incCumul.toFixed(2) + '</span><br>' + fmtUtc(a.ts));
+      addTip(wrapper, '<b>💥 Incoming</b><br>Attacker: ' + esc(a.attacker) + '<br><span style="color:#ff6666">-' + a.respect.toFixed(2) + ' respect</span><br>Window total: <span style="color:#ff6666">-' + incWinCumul.toFixed(2) + '</span><br>' + fmtUtc(a.ts));
       leftEl.appendChild(wrapper);
     });
-    // Outgoing → RIGHT column: colored bar from left, cumulative label to the right of bar
-    let outCumul = 0;
+    // Outgoing → RIGHT column: colored bar from left, window-cumulative label to the right of bar
+    let outWinCumul = 0, outLastTs = null;
     TL.outgoing.forEach(a => {
-      outCumul += a.respect;
+      if (outLastTs !== null && a.ts - outLastTs > WIN_GAP) outWinCumul = 0;
+      outWinCumul += a.respect;
+      outLastTs = a.ts;
       const bw = Math.max(a.respect / maxRe * 90, 1);
       const wrapper = document.createElement('div');
       wrapper.style.cssText = 'position:absolute;left:0;top:' + vpct(a.ts) + '%;width:' + bw + '%;display:flex;align-items:center;transform:translateY(-50%);z-index:5;cursor:pointer;overflow:visible';
@@ -1405,10 +1410,10 @@
       barEl.style.cssText = 'height:6px;background:#44cc66;border-radius:0 3px 3px 0;flex:1;min-width:3px';
       const lbl = document.createElement('span');
       lbl.style.cssText = 'font-size:9px;color:#88ee99;white-space:nowrap;padding-left:2px;flex-shrink:0;line-height:1';
-      lbl.textContent = outCumul.toFixed(1);
+      lbl.textContent = outWinCumul.toFixed(1);
       wrapper.appendChild(barEl);
       wrapper.appendChild(lbl);
-      addTip(wrapper, '<b>⚔ Outgoing</b><br>Opponent: ' + esc(a.opponent) + '<br><span style="color:#66dd88">+' + a.respect.toFixed(2) + ' respect</span><br>Total gained: <span style="color:#66dd88">+' + outCumul.toFixed(2) + '</span><br>' + fmtUtc(a.ts));
+      addTip(wrapper, '<b>⚔ Outgoing</b><br>Opponent: ' + esc(a.opponent) + '<br><span style="color:#66dd88">+' + a.respect.toFixed(2) + ' respect</span><br>Window total: <span style="color:#66dd88">+' + outWinCumul.toFixed(2) + '</span><br>' + fmtUtc(a.ts));
       rightEl.appendChild(wrapper);
     });
     // Time ticks + date labels – fixed 3h intervals
