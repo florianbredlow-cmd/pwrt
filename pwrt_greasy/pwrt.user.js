@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PWRT – Personal War Report Tool
 // @namespace    https://greasyfork.org/scripts/pwrt
-// @version      1.1.11
+// @version      1.1.12
 // @description  Personal War Report Tool for Torn – shows your ranked-war statistics on the Factions page. Works in Torn PDA (iOS/Android) and desktop browsers with Tampermonkey/Violentmonkey. On first use you will be prompted for your Torn API key (Limited access or higher).
 // @author       PWRT
 // @homepageURL  https://github.com/flotomat/pwrt
@@ -812,8 +812,18 @@
       </div>
     </div>
     <div class="dash-stats">
-      <div class="ds ds-blue"><div class="ds-lbl">Time defended</div><div class="ds-pct">${dash.defPct} %</div><div class="ds-abs">${fmtDur(dash.defendedSecs)}</div></div>
-      <div class="ds ds-red"><div class="ds-lbl">Time bleeding</div><div class="ds-pct">${dash.bldPct} %</div><div class="ds-abs">${fmtDur(dash.bleedingSecs)}</div></div>
+      <div class="ds ds-blue${accessLevel !== 'full' ? ' ds-disabled' : ''}">
+        <div class="ds-lbl">Time defended</div>
+        ${accessLevel === 'full'
+          ? `<div class="ds-pct">${dash.defPct} %</div><div class="ds-abs">${fmtDur(dash.defendedSecs)}</div>`
+          : `<div class="ds-pct" style="font-size:18px;color:#445">–</div><div class="ds-abs" style="color:#cc8833;font-weight:bold">⚠ Full Access required</div>`}
+      </div>
+      <div class="ds ds-red${accessLevel !== 'full' ? ' ds-disabled' : ''}">
+        <div class="ds-lbl">Time bleeding</div>
+        ${accessLevel === 'full'
+          ? `<div class="ds-pct">${dash.bldPct} %</div><div class="ds-abs">${fmtDur(dash.bleedingSecs)}</div>`
+          : `<div class="ds-pct" style="font-size:18px;color:#445">–</div><div class="ds-abs" style="color:#cc8833;font-weight:bold">⚠ Full Access required</div>`}
+      </div>
       <div class="ds ds-green"><div class="ds-lbl">Time hitting</div><div class="ds-pct">${dash.hitPct} %</div><div class="ds-abs">${fmtDur(dash.hittingSecs)}</div></div>
       <div class="ds ds-orange">
         <div class="ds-lbl">Ø Recovery Time</div>
