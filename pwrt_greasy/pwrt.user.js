@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PWRT – Personal War Report Tool
 // @namespace    https://greasyfork.org/scripts/pwrt
-// @version      1.1.4
+// @version      1.1.5
 // @description  Personal War Report Tool for Torn – shows your ranked-war statistics on the Factions page. Works in Torn PDA (iOS/Android) and desktop browsers with Tampermonkey/Violentmonkey. On first use you will be prompted for your Torn API key (Limited access or higher).
 // @author       PWRT
 // @homepageURL  https://github.com/flotomat/pwrt
@@ -745,11 +745,6 @@
       const att = isObj(a.attacker) ? a.attacker : {};
       return { ts: atkTs(a), respect: parseFloat(a.respect_gain ?? a.respect ?? 0), attacker: att.name ?? a.attacker_name ?? '?' };
     });
-    const tlJson  = JSON.stringify({ warStart, warEnd, travel: timeline.travel, hospital: timeline.hospital, active: timeline.active, outgoing: tlOut, incoming: tlInc });
-    const aaJson  = JSON.stringify({ hitByHour, attackerList: attackerStats.slice(0, 20).map(s => ({ id: s.id, name: s.name, count: s.count, respect: +s.respect.toFixed(2) })) });
-
-    const DEST = { 1:'Torn',2:'Cayman Islands',3:'UK',4:'Argentina',5:'Switzerland',6:'Japan',7:'China',8:'UAE',9:'Canada',10:'Hawaii',11:'Mexico',12:'South Africa' };
-
     // ── Build HTML string ──
     let H = `
 <div id="pwrt-close-btn" style="position:absolute;top:12px;right:16px;cursor:pointer;font-size:22px;color:#aaa;z-index:10" title="Close">✕</div>
@@ -938,8 +933,8 @@
 <div id="pwrt-tl-tooltip" class="tl-tooltip"></div>
 <script>
 (function(){
-  var TL = ${tlJson};
-  var AA = ${aaJson};
+  var TL = {};
+  var AA = {};
   var wS = TL.warStart, wE = TL.warEnd, dur = wE - wS;
   var DEST = {1:'Torn',2:'Cayman Islands',3:'UK',4:'Argentina',5:'Switzerland',6:'Japan',7:'China',8:'UAE',9:'Canada',10:'Hawaii',11:'Mexico',12:'South Africa'};
   function fDur(s){ if(s<60) return s+'s'; if(s<3600) return Math.floor(s/60)+'m '+(s%60)+'s'; var h=Math.floor(s/3600),m=Math.floor((s%3600)/60); return h+'h'+(m?' '+m+'m':''); }
@@ -1040,12 +1035,11 @@
       document.getElementById('pwrt-tab-'+tab).classList.add('active');
     });
   });
-  var closeBtn=document.getElementById('pwrt-close-btn');
-  if(closeBtn) closeBtn.addEventListener('click',function(){ var ov=document.getElementById('pwrt-overlay'); if(ov) ov.style.display='none'; });
-}());
-</script>`;
+`;
 
-    return H;
+    const tlData = { warStart, warEnd, travel: timeline.travel, hospital: timeline.hospital, active: timeline.active, outgoing: tlOut, incoming: tlInc };
+    const aaData = { hitByHour, attackerList: attackerStats.slice(0, 20).map(s => ({ id: s.id, name: s.name, count: s.count, respect: +s.respect.toFixed(2) })) };
+    return { html: H, tlData, aaData };
   }
 
   // ── Orchestration ────────────────────────────────────────────
@@ -1161,12 +1155,13 @@
 #pwrt-status { color:#aaa;font-size:12px;font-style:italic; }
 #pwrt-err-msg { color:#ff8888;font-size:12px;max-width:400px; }
 
-/* Overlay */
+/* Overlay – inline within #pwrt-trigger-bar, collapsible */
 #pwrt-overlay {
-  display:none;position:fixed;inset:0;z-index:99999;
-  background:#1a1a2e;overflow-y:auto;font-family:Arial,sans-serif;font-size:13px;color:#e0e0e0;
+  display:none;background:#1a1a2e;overflow-y:auto;max-height:82vh;
+  font-family:Arial,sans-serif;font-size:13px;color:#e0e0e0;
+  border-top:1px solid #334455;position:relative;
 }
-#pwrt-overlay.active { display:block; }
+#pwrt-trigger-bar.pwrt-expanded #pwrt-overlay.active { display:block; }
 
 /* Report styles */
 #pwrt-overlay *{box-sizing:border-box}
@@ -1291,6 +1286,211 @@
 
 
 
+  // ── Report rendering functions (called from main IIFE after HTML injection) ──
+  const DEST_NAMES = { 1:'Torn',2:'Cayman Islands',3:'UK',4:'Argentina',5:'Switzerland',6:'Japan',7:'China',8:'UAE',9:'Canada',10:'Hawaii',11:'Mexico',12:'South Africa' };
+
+  function _makeTipFn(container) {
+    const tip = container.querySelector('#pwrt-tl-tooltip');
+    if (!tip) return function() {};
+    return function(el, html) {
+      el.addEventListener('mouseenter', function() { tip.innerHTML = html; tip.style.display = 'block'; });
+      el.addEventListener('mouseleave', function() { tip.style.display = 'none'; });
+    };
+  }
+
+  function renderVtl(container, TL) {
+    const trackEl = container.querySelector('#pwrt-vtl-track');
+    const leftEl  = container.querySelector('#pwrt-vtl-left');
+    const rightEl = container.querySelector('#pwrt-vtl-right');
+    const axisEl  = container.querySelector('#pwrt-vtl-axis');
+    if (!trackEl || !leftEl || !rightEl || !axisEl) return;
+    const addTip = _makeTipFn(container);
+    trackEl.innerHTML = ''; leftEl.innerHTML = ''; rightEl.innerHTML = ''; axisEl.innerHTML = '';
+    const wS = TL.warStart, wE = TL.warEnd, dur = Math.max(1, wE - wS);
+    const tlH = Math.max(400, Math.min(2000, Math.round(dur / 240)));
+    const bodyEl = container.querySelector('.vtl-body');
+    if (bodyEl) bodyEl.style.height = tlH + 'px';
+    function vpct(ts) { return Math.max(0, Math.min(100, (ts - wS) / dur * 100)); }
+    function fHour(ts) { const d = new Date(ts * 1000); return String(d.getUTCHours()).padStart(2, '0') + ':00'; }
+    function fDate(ts) { const d = new Date(ts * 1000); return String(d.getUTCDate()).padStart(2, '0') + '.' + String(d.getUTCMonth()+1).padStart(2, '0') + '.' + d.getUTCFullYear(); }
+    function mkSeg(tp, hp, color, tipHtml) {
+      const el = document.createElement('div');
+      el.className = 'vtl-seg';
+      el.style.top = tp + '%'; el.style.height = Math.max(hp, 0.2) + '%'; el.style.background = color;
+      if (tipHtml) addTip(el, tipHtml);
+      return el;
+    }
+    TL.active.forEach(a => {
+      const tp = vpct(a.start), hp = vpct(a.end) - tp;
+      trackEl.appendChild(mkSeg(tp, hp, '#3aaa55', '<b>Active play</b><br>' + fmtUtc(a.start) + ' – ' + fmtUtc(a.end)));
+    });
+    TL.travel.forEach(t => {
+      const dn = DEST_NAMES[t.dest_id] || ('Location #' + t.dest_id);
+      const on = DEST_NAMES[t.origin_id] || ('Location #' + t.origin_id);
+      const tp = vpct(t.start), hp = vpct(t.end) - tp;
+      trackEl.appendChild(mkSeg(tp, hp, '#5bc8f5', '<b>✈ ' + on + ' → ' + dn + '</b><br>Duration: ' + fmtDur(t.duration) + '<br>' + fmtUtc(t.start)));
+    });
+    TL.hospital.forEach(h => {
+      const tp = vpct(h.start), hp = vpct(h.end) - tp;
+      const color = h.type === 'leave' ? '#ff3333' : h.type === 'attack' ? '#ff8833' : '#9955cc';
+      const title = h.type === 'leave' ? '🏥 Hospital <em>(leave)</em>' : h.type === 'attack' ? '🏥 Hospital <em>(attack)</em>' : '🏥 Hospital <em>(other)</em>';
+      let th = '<b>' + title + '</b><br>Duration: ' + fmtDur(h.duration) + '<br>' + fmtUtc(h.start);
+      if (h.attacker) th += '<br>By: ' + esc(h.attacker);
+      if (h.items_used && h.items_used.length) th += '<br>Items: ' + esc(h.items_used.join(', '));
+      trackEl.appendChild(mkSeg(tp, hp, color, th));
+    });
+    const allRe = TL.outgoing.map(a => a.respect).concat(TL.incoming.map(a => a.respect));
+    const maxRe = Math.max.apply(null, allRe.concat([0.01]));
+    // Incoming → LEFT column: colored bar from right, value label to the left of bar
+    TL.incoming.forEach(a => {
+      const bw = Math.max(a.respect / maxRe * 90, 1);
+      const wrapper = document.createElement('div');
+      wrapper.style.cssText = 'position:absolute;right:0;top:' + vpct(a.ts) + '%;width:' + bw + '%;display:flex;align-items:center;transform:translateY(-50%);z-index:5;cursor:pointer;overflow:visible';
+      const lbl = document.createElement('span');
+      lbl.style.cssText = 'font-size:9px;color:#ff9999;white-space:nowrap;padding-right:2px;flex-shrink:0;line-height:1';
+      lbl.textContent = a.respect.toFixed(1);
+      const barEl = document.createElement('div');
+      barEl.style.cssText = 'height:6px;background:#dd4444;border-radius:3px 0 0 3px;flex:1;min-width:3px';
+      wrapper.appendChild(lbl);
+      wrapper.appendChild(barEl);
+      addTip(wrapper, '<b>💥 Incoming</b><br>Attacker: ' + esc(a.attacker) + '<br><span style="color:#ff6666">-' + a.respect.toFixed(2) + ' respect</span><br>' + fmtUtc(a.ts));
+      leftEl.appendChild(wrapper);
+    });
+    // Outgoing → RIGHT column: colored bar from left, value label to the right of bar
+    TL.outgoing.forEach(a => {
+      const bw = Math.max(a.respect / maxRe * 90, 1);
+      const wrapper = document.createElement('div');
+      wrapper.style.cssText = 'position:absolute;left:0;top:' + vpct(a.ts) + '%;width:' + bw + '%;display:flex;align-items:center;transform:translateY(-50%);z-index:5;cursor:pointer;overflow:visible';
+      const barEl = document.createElement('div');
+      barEl.style.cssText = 'height:6px;background:#44cc66;border-radius:0 3px 3px 0;flex:1;min-width:3px';
+      const lbl = document.createElement('span');
+      lbl.style.cssText = 'font-size:9px;color:#88ee99;white-space:nowrap;padding-left:2px;flex-shrink:0;line-height:1';
+      lbl.textContent = a.respect.toFixed(1);
+      wrapper.appendChild(barEl);
+      wrapper.appendChild(lbl);
+      addTip(wrapper, '<b>⚔ Outgoing</b><br>Opponent: ' + esc(a.opponent) + '<br><span style="color:#66dd88">+' + a.respect.toFixed(2) + ' respect</span><br>' + fmtUtc(a.ts));
+      rightEl.appendChild(wrapper);
+    });
+    // Time ticks + date labels – fixed 3h intervals
+    const TICK_IV = 10800;
+    const firstTick = Math.ceil(wS / TICK_IV) * TICK_IV;
+    let lastDate = null;
+    // Always label the war start at the very top
+    const wStartDate = fDate(wS);
+    lastDate = wStartDate;
+    const wStartDl = document.createElement('div');
+    wStartDl.style.cssText = 'position:absolute;left:18px;top:2px;font-size:11px;color:#7799cc;font-weight:bold;white-space:nowrap;pointer-events:none';
+    wStartDl.textContent = wStartDate;
+    axisEl.appendChild(wStartDl);
+    for (let ts = firstTick; ts <= wE; ts += TICK_IV) {
+      const dateStr = fDate(ts);
+      if (dateStr !== lastDate) {
+        lastDate = dateStr;
+        const dl = document.createElement('div');
+        dl.className = 'vtl-date-label';
+        dl.style.top = vpct(ts) + '%';
+        dl.textContent = dateStr;
+        axisEl.appendChild(dl);
+      }
+      const tk = document.createElement('div');
+      tk.className = 'vtl-tick';
+      tk.style.top = vpct(ts) + '%';
+      tk.textContent = fHour(ts);
+      axisEl.appendChild(tk);
+    }
+  }
+
+  function renderHourChartFn(container, AA) {
+    const chartEl = container.querySelector('#pwrt-hour-chart');
+    const axisEl  = container.querySelector('#pwrt-hour-axis');
+    const peakEl  = container.querySelector('#pwrt-hour-peak');
+    if (!chartEl || !AA) return;
+    const addTip = _makeTipFn(container);
+    const hours = AA.hitByHour;
+    const maxH = Math.max.apply(null, hours.concat([1]));
+    chartEl.innerHTML = ''; if (axisEl) axisEl.innerHTML = '';
+    const ranked = hours.map((c, h) => ({ h, c })).filter(x => x.c > 0).sort((a, b) => b.c - a.c);
+    const danger = {}; ranked.slice(0, 3).forEach(x => { danger[x.h] = true; });
+    hours.forEach((cnt, h) => {
+      const bh = cnt > 0 ? Math.max(4, Math.round(cnt / maxH * 96)) : 2;
+      const bar = document.createElement('div');
+      bar.className = 'hour-bar';
+      bar.style.height = bh + 'px';
+      bar.style.background = cnt === 0 ? '#2a2a3a' : danger[h] ? '#ff3333' : '#cc4444';
+      if (cnt > 0) {
+        const hh = String(h).padStart(2, '0');
+        addTip(bar, '<b>🕐 ' + hh + ':00–' + hh + ':59 UTC</b><br><span style="color:#ff8888">' + cnt + ' incoming hit' + (cnt !== 1 ? 's' : '') + '</span>' + (danger[h] ? '<br><span style="color:#ff4444">⚠ Danger hour</span>' : ''));
+      }
+      chartEl.appendChild(bar);
+      if (axisEl) {
+        const lbl = document.createElement('div');
+        lbl.className = 'hour-lbl' + (h % 6 === 0 ? ' show' : '');
+        lbl.textContent = h % 6 === 0 ? String(h).padStart(2, '0') : '';
+        axisEl.appendChild(lbl);
+      }
+    });
+    if (peakEl && ranked.length > 0) {
+      peakEl.innerHTML = '⚠ Peak attack hours: <span style="color:#ff6666;font-weight:bold">' +
+        ranked.slice(0, 3).map(x => String(x.h).padStart(2, '0') + ':00 UTC (' + x.c + '×)').join(' &nbsp;·&nbsp; ') + '</span>';
+    }
+  }
+
+  function renderHeatmapFn(container, TL) {
+    const el = container.querySelector('#pwrt-heatmap');
+    if (!el) return;
+    const addTip = _makeTipFn(container);
+    el.innerHTML = '';
+    const dayStart = Math.floor(TL.warStart / 86400) * 86400;
+    const dayCount = Math.ceil((TL.warEnd - dayStart) / 86400);
+    const inc2D = [], out2D = [];
+    for (let d = 0; d < dayCount; d++) { inc2D.push(new Array(24).fill(0)); out2D.push(new Array(24).fill(0)); }
+    TL.incoming.forEach(a => {
+      const d = Math.floor((a.ts - dayStart) / 86400);
+      const h = Math.floor(((a.ts % 86400) + 86400) % 86400 / 3600);
+      if (d >= 0 && d < dayCount) inc2D[d][h]++;
+    });
+    TL.outgoing.forEach(a => {
+      const d = Math.floor((a.ts - dayStart) / 86400);
+      const h = Math.floor(((a.ts % 86400) + 86400) % 86400 / 3600);
+      if (d >= 0 && d < dayCount) out2D[d][h]++;
+    });
+    function makeGrid(data, cr, cg, cb, title) {
+      let maxVal = 1;
+      data.forEach(r => r.forEach(v => { if (v > maxVal) maxVal = v; }));
+      const sec = document.createElement('div'); sec.style.marginBottom = '28px';
+      const h3 = document.createElement('h3');
+      h3.style.cssText = 'color:#aaddff;font-size:14px;margin-bottom:10px'; h3.textContent = title;
+      sec.appendChild(h3);
+      const grid = document.createElement('div');
+      grid.style.cssText = 'display:grid;grid-template-columns:44px repeat(24,1fr);gap:2px';
+      grid.appendChild(document.createElement('div'));
+      for (let h = 0; h < 24; h++) {
+        const cl = document.createElement('div');
+        cl.style.cssText = 'font-size:9px;color:#556;text-align:center;padding-bottom:2px';
+        cl.textContent = h % 6 === 0 ? String(h).padStart(2, '0') : '';
+        grid.appendChild(cl);
+      }
+      data.forEach((row, d) => {
+        const dd = new Date((dayStart + d * 86400) * 1000);
+        const rl = document.createElement('div');
+        rl.style.cssText = 'font-size:11px;color:#778;text-align:right;padding-right:4px;line-height:20px';
+        rl.textContent = String(dd.getUTCDate()).padStart(2, '0') + '.' + String(dd.getUTCMonth()+1).padStart(2, '0') + '.';
+        grid.appendChild(rl);
+        row.forEach((cnt, h) => {
+          const cell = document.createElement('div');
+          cell.style.cssText = 'height:20px;border-radius:2px;cursor:default';
+          const alpha = cnt === 0 ? 0 : Math.min(1, Math.max(0.15, cnt / maxVal));
+          cell.style.background = cnt === 0 ? '#1e1e2e' : 'rgba(' + cr + ',' + cg + ',' + cb + ',' + alpha + ')';
+          if (cnt > 0) addTip(cell, String(h).padStart(2, '0') + ':00 UTC – ' + String(dd.getUTCDate()).padStart(2, '0') + '.' + String(dd.getUTCMonth()+1).padStart(2, '0') + '.' + dd.getUTCFullYear() + '<br>' + cnt + ' attack' + (cnt !== 1 ? 's' : ''));
+          grid.appendChild(cell);
+        });
+      });
+      sec.appendChild(grid); el.appendChild(sec);
+    }
+    makeGrid(inc2D, 221, 68, 68, '⬇ Incoming Attacks (per Day & Hour)');
+    makeGrid(out2D, 68, 204, 102, '⬆ Outgoing Attacks (per Day & Hour)');
+  }
+
   // ── Inject UI on faction page ─────────────────────────────────
   function injectUI() {
     // Avoid double injection
@@ -1301,10 +1501,46 @@
     style.textContent = CSS;
     document.head.appendChild(style);
 
-    // Full-screen report overlay (closure variable – re-attached to body if needed)
+    // Inline report overlay – appended to bar after insertBar()
     const overlay = document.createElement('div');
     overlay.id = 'pwrt-overlay';
-    document.body.appendChild(overlay);
+    let currentTlData = null;
+
+    // Click delegation on overlay: tab switching + close (returns to input form)
+    overlay.addEventListener('click', function(e) {
+      const btn = e.target.closest('.tab-btn');
+      if (btn) {
+        const tab = btn.dataset.tab;
+        overlay.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        overlay.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        const pane = overlay.querySelector('#pwrt-tab-' + tab);
+        if (pane) pane.classList.add('active');
+        return;
+      }
+      if (e.target.closest('#pwrt-close-btn')) {
+        overlay.classList.remove('active');
+        overlay.innerHTML = '';
+        currentTlData = null;
+        const bc = document.getElementById('pwrt-bar-content');
+        if (bc) bc.style.display = '';
+      }
+    });
+
+    // Tooltip mousemove (position:fixed – works even inside scrollable overlay)
+    document.addEventListener('mousemove', function(e) {
+      const tipEl = overlay.querySelector('#pwrt-tl-tooltip');
+      if (tipEl && tipEl.style.display !== 'none') {
+        const x = e.clientX + 14, y = e.clientY - 12;
+        tipEl.style.left = (x + 310 > window.innerWidth ? e.clientX - 316 : x) + 'px';
+        tipEl.style.top = y + 'px';
+      }
+    });
+
+    // Resize: re-render timeline
+    window.addEventListener('resize', function() {
+      if (currentTlData) renderVtl(overlay, currentTlData);
+    });
 
     // Trigger bar
     const pdaKey      = getPDAApiKey();
@@ -1384,6 +1620,7 @@
       }
     }
     insertBar();
+    bar.appendChild(overlay); // inline overlay appended after bar is in DOM
 
     // ── Async PDA key level check ──────────────────────────────────────────
     // Determines whether to hide the override input (full access) or show it (limited).
@@ -1528,28 +1765,26 @@
 
       storeSet(DATE_STORE, dateStr);
 
-      // ── Ensure report overlay is in the DOM ───────────────────────────────
-      if (!document.body.contains(overlay)) document.body.appendChild(overlay);
+      // ── Ensure overlay is inside the trigger bar ──────────────────────────
+      if (!bar.contains(overlay)) bar.appendChild(overlay);
 
       // ── Run report with hard 60s timeout ─────────────────────────────────
       let reportOk = false;
       try {
         const timeoutP = new Promise((_, rej) =>
           setTimeout(() => rej(new Error('Report timed out after 60 s. Check your connection.')), 60000));
-        const html = await Promise.race([runReport(key, dateStr, setStatus, preCheckedLevel), timeoutP]);
+        const reportResult = await Promise.race([runReport(key, dateStr, setStatus, preCheckedLevel), timeoutP]);
 
-        overlay.innerHTML = html;
+        // Switch from input form to inline report view
+        const barContent = document.getElementById('pwrt-bar-content');
+        if (barContent) barContent.style.display = 'none';
+        bar.classList.add('pwrt-expanded');
+        overlay.innerHTML = reportResult.html;
         overlay.classList.add('active');
-        // innerHTML does NOT execute <script> tags – recreate them manually.
-        try {
-          overlay.querySelectorAll('script').forEach(s => {
-            const n = document.createElement('script');
-            n.textContent = s.textContent;
-            s.replaceWith(n);
-          });
-        } catch (scriptErr) {
-          console.error('[PWRT] Script re-execution failed:', scriptErr);
-        }
+        currentTlData = reportResult.tlData;
+        renderVtl(overlay, reportResult.tlData);
+        renderHourChartFn(overlay, reportResult.aaData);
+        renderHeatmapFn(overlay, reportResult.tlData);
         reportOk = true;
 
       } catch (err) {
