@@ -20,7 +20,7 @@
 
 /* ============================================================
    PWRT – Personal War Report Tool  (Userscript Edition)
-   Funktionsgleich mit dem PHP-Report.
+   Check this to be working jus tlike the PHP-Report.
    Anforderungen: Torn API Key (mindestens "Limited", für
    vollständige Last-Action-Analyse "Full Access").
    ============================================================ */
