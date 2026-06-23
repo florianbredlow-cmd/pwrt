@@ -786,6 +786,7 @@
   <!-- TAB: Dashboard -->
   <div id="pwrt-tab-dashboard" class="tab-pane active">
     <h2>Dashboard</h2>
+    ${accessLevel !== 'full' ? '<div class="pwrt-limited-banner">⚠ <strong>Eingeschränkter API-Zugriff (Limited Key)</strong><br>Aktivitätsbänder (Reisen, Krankenhaus, aktive Phasen), Erholungszeit und Aktive Verwundbarkeit erfordern einen <strong>Full-Access-Key</strong>. Diese Informationen fehlen im aktuellen Report.</div>' : ''}
     <div class="tl-legend">
       <span class="leg-item"><span class="leg-dot" style="background:#3aaa55"></span> Active play</span>
       <span class="leg-item"><span class="leg-dot" style="background:#5bc8f5"></span> In the air</span>
@@ -795,7 +796,6 @@
       <span class="leg-item"><span class="leg-dot" style="background:#dd4444"></span> Incoming ←</span>
       <span class="leg-item"><span class="leg-dot" style="background:#44cc66"></span> Outgoing →</span>
     </div>
-    ${accessLevel !== 'full' ? '<p class="tl-no-data">Activity bands require Full Access API key. Showing attack bars only.</p>' : ''}
     <div class="vtl-outer">
       <div class="vtl-header">
         <div class="vtl-left-lbl">← Incoming (respect lost)</div>
@@ -819,17 +819,18 @@
         <div class="ds-lbl">Ø Recovery Time</div>
         ${accessLevel === 'full' && dash.avgRecovery != null
           ? `<div class="ds-pct" style="font-size:18px">${fmtDur(dash.avgRecovery)}</div><div class="ds-abs">Hosp. → next attack</div>`
-          : `<div class="ds-pct" style="font-size:18px;color:#445">–</div><div class="ds-abs">${accessLevel !== 'full' ? 'Full Access required' : 'No combat hospital'}</div>`}
+          : `<div class="ds-pct" style="font-size:18px;color:#445">–</div><div class="ds-abs" style="${accessLevel !== 'full' ? 'color:#cc8833;font-weight:bold' : ''}">${accessLevel !== 'full' ? '⚠ Full Access required' : 'No combat hospital'}</div>`}
       </div>
       <div class="ds ds-blue"><div class="ds-lbl">Ø Respect / Attack</div><div class="ds-pct" style="font-size:18px">${nf(avgRespAtk)}</div><div class="ds-abs">${outgoing.length} attacks total</div></div>
       ${accessLevel === 'full'
         ? `<div class="ds ${dash.vulnPct >= 50 ? 'ds-red' : 'ds-orange'}"><div class="ds-lbl">Active Vulnerability</div><div class="ds-pct">${dash.vulnPct} %</div><div class="ds-abs">${dash.hitsDuringActive} / ${incoming.length} hits in active window</div></div>`
-        : ''}
+        : `<div class="ds ds-disabled"><div class="ds-lbl">Active Vulnerability</div><div class="ds-pct" style="font-size:18px;color:#445">–</div><div class="ds-abs" style="color:#cc8833;font-weight:bold">⚠ Full Access required</div></div>`}
     </div>
   </div>
 
   <!-- TAB: Fight Details -->
   <div id="pwrt-tab-fights" class="tab-pane">
+    ${accessLevel !== 'full' ? '<div class="pwrt-limited-banner">⚠ <strong>Eingeschränkter API-Zugriff (Limited Key)</strong><br>Für eingehende Angriffe fehlen die Spalten <strong>Status</strong>, <strong>Letzte Aktion</strong> und <strong>Zeitabstand</strong> sowie die Verhaltensanalyse. Diese Informationen erfordern einen <strong>Full-Access-Key</strong>.</div>' : ''}
     <div class="columns">
       <div class="col col-left">
         <h2>Outgoing Attacks</h2>
@@ -1260,6 +1261,10 @@
 .hour-axis{display:flex;gap:2px;margin-top:3px}
 .hour-lbl{flex:1;text-align:center;font-size:9px;color:#333;overflow:hidden}
 .hour-lbl.show{color:#889;font-size:10px}
+.pwrt-limited-banner{background:#2a1f00;border:1px solid #cc8800;border-left:4px solid #ffaa00;border-radius:5px;padding:10px 14px;margin:0 0 16px;color:#ffcc55;font-size:13px;font-weight:bold;line-height:1.6}
+.pwrt-limited-banner strong{color:#ffd966}
+.tab-btn.tab-disabled{opacity:.4;cursor:not-allowed;color:#445!important;background:#1e1e2e!important;pointer-events:none}
+.ds.ds-disabled{opacity:.5}
 
 /* ── Torn PDA / Mobile responsive overrides ──────────────── */
 #pwrt-trigger-bar {
@@ -1586,6 +1591,7 @@
     overlay.addEventListener('click', function(e) {
       const btn = e.target.closest('.tab-btn');
       if (btn) {
+        if (btn.classList.contains('tab-disabled')) return;
         const tab = btn.dataset.tab;
         overlay.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         overlay.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
@@ -1632,7 +1638,7 @@
       keySection = `
         <span id="pwrt-pda-key-info" style="background:#1a2a1a;border:1px solid #336633;border-radius:4px;padding:5px 10px;color:#88dd88;font-size:12px">🔑 PDA-Key wird geprüft…</span>
         <input id="pwrt-key-input" type="password" placeholder="Full-Access-Key (optional)" value="" autocomplete="off" style="display:none">
-        <span id="pwrt-pda-key-hint" style="color:#778;font-size:11px;display:none">Dein PDA-Key hat nur Limited-Zugriff. Für die detaillierte Log-Analyse trage hier einen Full-Access-Key ein.</span>`;
+        <span id="pwrt-pda-key-hint" style="color:#ffcc55;font-size:12px;font-weight:bold;display:none">⚠ Dein PDA-Key hat nur Limited-Zugriff. Für vollständige Log-Analyse trage einen Full-Access-Key ein.</span>`;
     } else {
       // Manual key entry (desktop extension or Torn PDA without auto-inject)
       keySection = `
@@ -1713,7 +1719,13 @@
             // Input stays hidden – no override needed
           } else {
             // limited or unknown → show override field
-            if (badge) badge.textContent = '🔑 PDA-Key aktiv (Limited)';
+            if (badge) {
+              badge.textContent = '⚠ PDA-Key aktiv (nur Limited)';
+              badge.style.background = '#2a1f00';
+              badge.style.borderColor = '#cc8800';
+              badge.style.color = '#ffcc55';
+              badge.style.fontWeight = 'bold';
+            }
             if (inp)  inp.style.display  = '';
             if (hint) hint.style.display = '';
             bar.classList.add('pwrt-expanded'); // expand so user sees the hint
