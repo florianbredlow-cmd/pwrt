@@ -747,18 +747,33 @@
     });
     // ── Build HTML string ──
     let H = `
-<div id="pwrt-close-btn" style="position:absolute;top:12px;right:16px;cursor:pointer;font-size:22px;color:#aaa;z-index:10" title="Close">✕</div>
+<div id="pwrt-close-btn" style="position:absolute;top:8px;right:12px;cursor:pointer;font-size:22px;color:#aaa;z-index:10" title="Close">✕</div>
 <div class="pwrt-header">
-  <h1>⚔ Personal War Report – TORN</h1>
-  <p style="color:#aaa;font-size:11px;margin:0 0 4px">Generated: ${new Date().toLocaleString()}</p>
-  <div class="summary">
-    <div class="sb"><div class="lbl">Opponent</div><div class="val">${esc(oppName ?? '?')}${oppId ? `<div style="font-size:11px;color:#aaa;font-weight:normal;margin-top:2px">ID ${esc(oppId)}</div>` : ''}</div></div>
-    <div class="sb"><div class="lbl">War Period</div><div class="val" style="font-size:12px;line-height:1.5">${esc(fmtTs(warStart))}<br>→ ${esc(fmtTs(warEnd))}</div></div>
-    <div class="sb"><div class="lbl">Result</div><div class="val ${resCls}">${esc(res)}</div></div>
-    ${warResult.ownScore != null ? `<div class="sb"><div class="lbl">Score</div><div class="val">${esc(warResult.ownScore)} – ${esc(warResult.oppScore)}</div></div>` : ''}
-    <div class="sb"><div class="lbl">Respect Won</div><div class="val rw">+${nf(repWon)}</div></div>
-    <div class="sb"><div class="lbl">Respect Lost</div><div class="val rl">-${nf(repLost)}</div></div>
-    <div class="sb-net"><div class="lbl">Net Respect</div><div class="val ${netCls}">${netRep >= 0 ? '+' : ''}${nf(netRep)}</div></div>
+  <div class="pwrt-hdr-toggle" id="pwrt-hdr-toggle">
+    <div style="display:flex;align-items:baseline;gap:10px;min-width:0;overflow:hidden">
+      <h1 style="margin:0;font-size:15px;white-space:nowrap">⚔ PWRT</h1>
+      <span style="color:#aaa;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(oppName ?? '?')}${oppId ? ' &nbsp;<span style="font-size:10px;color:#668">ID&nbsp;' + esc(oppId) + '</span>' : ''}</span>
+    </div>
+    <div class="pwrt-hdr-compact">
+      <span style="font-size:11px;color:#778">Result:</span>
+      <span class="val ${resCls}" style="font-size:14px;font-weight:bold">${esc(res)}</span>
+      <span style="color:#445;margin:0 2px">|</span>
+      <span style="font-size:11px;color:#778">Net:</span>
+      <span class="val ${netCls}" style="font-size:14px;font-weight:bold">${netRep >= 0 ? '+' : ''}${nf(netRep)}</span>
+      <span id="pwrt-hdr-arrow" style="font-size:11px;color:#5577cc;margin-left:6px;display:inline-block;transition:transform .25s">▲</span>
+    </div>
+  </div>
+  <div id="pwrt-hdr-detail" class="pwrt-hdr-detail">
+    <p style="color:#aaa;font-size:11px;margin:0 0 4px">Generated: ${new Date().toLocaleString()}</p>
+    <div class="summary">
+      <div class="sb"><div class="lbl">Opponent</div><div class="val">${esc(oppName ?? '?')}${oppId ? `<div style="font-size:11px;color:#aaa;font-weight:normal;margin-top:2px">ID ${esc(oppId)}</div>` : ''}</div></div>
+      <div class="sb"><div class="lbl">War Period</div><div class="val" style="font-size:12px;line-height:1.5">${esc(fmtTs(warStart))}<br>→ ${esc(fmtTs(warEnd))}</div></div>
+      <div class="sb"><div class="lbl">Result</div><div class="val ${resCls}">${esc(res)}</div></div>
+      ${warResult.ownScore != null ? `<div class="sb"><div class="lbl">Score</div><div class="val">${esc(warResult.ownScore)} – ${esc(warResult.oppScore)}</div></div>` : ''}
+      <div class="sb"><div class="lbl">Respect Won</div><div class="val rw">+${nf(repWon)}</div></div>
+      <div class="sb"><div class="lbl">Respect Lost</div><div class="val rl">-${nf(repLost)}</div></div>
+      <div class="sb-net"><div class="lbl">Net Respect</div><div class="val ${netCls}">${netRep >= 0 ? '+' : ''}${nf(netRep)}</div></div>
+    </div>
   </div>
 </div>
 <div class="pwrt-body">
@@ -1157,18 +1172,23 @@
 
 /* Overlay – inline within #pwrt-trigger-bar, collapsible */
 #pwrt-overlay {
-  display:none;background:#1a1a2e;overflow-y:auto;max-height:82vh;
+  display:none;background:#1a1a2e;height:82vh;max-height:82vh;
   font-family:Arial,sans-serif;font-size:13px;color:#e0e0e0;
-  border-top:1px solid #334455;position:relative;
+  border-top:1px solid #334455;position:relative;flex-direction:column;
 }
-#pwrt-trigger-bar.pwrt-expanded #pwrt-overlay.active { display:block; }
+#pwrt-trigger-bar.pwrt-expanded #pwrt-overlay.active { display:flex; }
 
 /* Report styles */
 #pwrt-overlay *{box-sizing:border-box}
 #pwrt-overlay h1{color:#e0c060;margin:0 0 2px}
 #pwrt-overlay h2{color:#aaddff;border-bottom:1px solid #334;padding-bottom:4px;margin-top:20px;margin-bottom:12px}
-.pwrt-header{position:sticky;top:0;z-index:50;background:#1a1a2e;border-bottom:2px solid #334455;padding:10px 16px 8px}
-.pwrt-body{padding:0 16px 24px}
+.pwrt-header{flex-shrink:0;z-index:50;background:#1a1a2e;border-bottom:2px solid #334455;}
+.pwrt-hdr-toggle{display:flex;justify-content:space-between;align-items:center;padding:8px 44px 6px 16px;cursor:pointer;user-select:none;gap:12px;}
+.pwrt-hdr-toggle:hover{background:rgba(255,255,255,.03)}
+.pwrt-hdr-compact{display:flex;align-items:center;gap:8px;font-size:13px;flex-shrink:0}
+.pwrt-hdr-detail{overflow:hidden;max-height:300px;transition:max-height .28s ease,padding .28s ease;padding:0 16px 8px}
+.pwrt-hdr-detail.collapsed{max-height:0!important;padding-top:0;padding-bottom:0}
+.pwrt-body{flex:1;overflow-y:auto;min-height:0;padding:0 16px 24px}
 .summary{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0 4px}
 .sb{background:#252545;border-radius:6px;padding:8px 16px;min-width:110px}
 .sb .lbl{font-size:11px;color:#aaa;text-transform:uppercase}
@@ -1293,7 +1313,23 @@
     const tip = container.querySelector('#pwrt-tl-tooltip');
     if (!tip) return function() {};
     return function(el, html) {
-      el.addEventListener('mouseenter', function() { tip.innerHTML = html; tip.style.display = 'block'; });
+      el.addEventListener('mouseenter', function() {
+        tip.innerHTML = html;
+        tip.style.display = 'block';
+        const r = el.getBoundingClientRect();
+        const tipMaxW = Math.min(280, window.innerWidth - 16);
+        tip.style.maxWidth = tipMaxW + 'px';
+        const tipW = tip.offsetWidth || tipMaxW;
+        const tipH = tip.offsetHeight || 80;
+        // Center horizontally over element, clamped to viewport
+        let x = r.left + r.width / 2 - tipW / 2;
+        x = Math.max(4, Math.min(x, window.innerWidth - tipW - 4));
+        // Prefer above; fall back to below if not enough room
+        let y = r.top - tipH - 8;
+        if (y < 4) y = r.bottom + 8;
+        tip.style.left = x + 'px';
+        tip.style.top = y + 'px';
+      });
       el.addEventListener('mouseleave', function() { tip.style.display = 'none'; });
     };
   }
@@ -1341,23 +1377,27 @@
     });
     const allRe = TL.outgoing.map(a => a.respect).concat(TL.incoming.map(a => a.respect));
     const maxRe = Math.max.apply(null, allRe.concat([0.01]));
-    // Incoming → LEFT column: colored bar from right, value label to the left of bar
+    // Incoming → LEFT column: colored bar from right, cumulative label to the left of bar
+    let incCumul = 0;
     TL.incoming.forEach(a => {
+      incCumul += a.respect;
       const bw = Math.max(a.respect / maxRe * 90, 1);
       const wrapper = document.createElement('div');
       wrapper.style.cssText = 'position:absolute;right:0;top:' + vpct(a.ts) + '%;width:' + bw + '%;display:flex;align-items:center;transform:translateY(-50%);z-index:5;cursor:pointer;overflow:visible';
       const lbl = document.createElement('span');
       lbl.style.cssText = 'font-size:9px;color:#ff9999;white-space:nowrap;padding-right:2px;flex-shrink:0;line-height:1';
-      lbl.textContent = a.respect.toFixed(1);
+      lbl.textContent = incCumul.toFixed(1);
       const barEl = document.createElement('div');
       barEl.style.cssText = 'height:6px;background:#dd4444;border-radius:3px 0 0 3px;flex:1;min-width:3px';
       wrapper.appendChild(lbl);
       wrapper.appendChild(barEl);
-      addTip(wrapper, '<b>💥 Incoming</b><br>Attacker: ' + esc(a.attacker) + '<br><span style="color:#ff6666">-' + a.respect.toFixed(2) + ' respect</span><br>' + fmtUtc(a.ts));
+      addTip(wrapper, '<b>💥 Incoming</b><br>Attacker: ' + esc(a.attacker) + '<br><span style="color:#ff6666">-' + a.respect.toFixed(2) + ' respect</span><br>Total lost: <span style="color:#ff6666">-' + incCumul.toFixed(2) + '</span><br>' + fmtUtc(a.ts));
       leftEl.appendChild(wrapper);
     });
-    // Outgoing → RIGHT column: colored bar from left, value label to the right of bar
+    // Outgoing → RIGHT column: colored bar from left, cumulative label to the right of bar
+    let outCumul = 0;
     TL.outgoing.forEach(a => {
+      outCumul += a.respect;
       const bw = Math.max(a.respect / maxRe * 90, 1);
       const wrapper = document.createElement('div');
       wrapper.style.cssText = 'position:absolute;left:0;top:' + vpct(a.ts) + '%;width:' + bw + '%;display:flex;align-items:center;transform:translateY(-50%);z-index:5;cursor:pointer;overflow:visible';
@@ -1365,10 +1405,10 @@
       barEl.style.cssText = 'height:6px;background:#44cc66;border-radius:0 3px 3px 0;flex:1;min-width:3px';
       const lbl = document.createElement('span');
       lbl.style.cssText = 'font-size:9px;color:#88ee99;white-space:nowrap;padding-left:2px;flex-shrink:0;line-height:1';
-      lbl.textContent = a.respect.toFixed(1);
+      lbl.textContent = outCumul.toFixed(1);
       wrapper.appendChild(barEl);
       wrapper.appendChild(lbl);
-      addTip(wrapper, '<b>⚔ Outgoing</b><br>Opponent: ' + esc(a.opponent) + '<br><span style="color:#66dd88">+' + a.respect.toFixed(2) + ' respect</span><br>' + fmtUtc(a.ts));
+      addTip(wrapper, '<b>⚔ Outgoing</b><br>Opponent: ' + esc(a.opponent) + '<br><span style="color:#66dd88">+' + a.respect.toFixed(2) + ' respect</span><br>Total gained: <span style="color:#66dd88">+' + outCumul.toFixed(2) + '</span><br>' + fmtUtc(a.ts));
       rightEl.appendChild(wrapper);
     });
     // Time ticks + date labels – fixed 3h intervals
@@ -1524,16 +1564,14 @@
         currentTlData = null;
         const bc = document.getElementById('pwrt-bar-content');
         if (bc) bc.style.display = '';
+        return;
       }
-    });
-
-    // Tooltip mousemove (position:fixed – works even inside scrollable overlay)
-    document.addEventListener('mousemove', function(e) {
-      const tipEl = overlay.querySelector('#pwrt-tl-tooltip');
-      if (tipEl && tipEl.style.display !== 'none') {
-        const x = e.clientX + 14, y = e.clientY - 12;
-        tipEl.style.left = (x + 310 > window.innerWidth ? e.clientX - 316 : x) + 'px';
-        tipEl.style.top = y + 'px';
+      const hdrToggle = e.target.closest('#pwrt-hdr-toggle');
+      if (hdrToggle) {
+        const detail = overlay.querySelector('#pwrt-hdr-detail');
+        const arrow  = overlay.querySelector('#pwrt-hdr-arrow');
+        if (detail) detail.classList.toggle('collapsed');
+        if (arrow)  arrow.style.transform = detail && detail.classList.contains('collapsed') ? 'rotate(180deg)' : '';
       }
     });
 
