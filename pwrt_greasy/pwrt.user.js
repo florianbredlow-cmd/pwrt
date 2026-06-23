@@ -6,7 +6,7 @@
 // @author       PWRT
 // @homepageURL  https://github.com/flotomat/pwrt
 // @supportURL   https://github.com/flotomat/pwrt/issues
-// @downloadURL  https://cdn.jsdelivr.net/gh/flotomat/pwrt@v1.1.4/pwrt_greasy/pwrt.user.js
+// @downloadURL  https://cdn.jsdelivr.net/gh/flotomat/pwrt@main/pwrt_greasy/pwrt.user.js
 // @updateURL    https://cdn.jsdelivr.net/gh/flotomat/pwrt@main/pwrt_greasy/pwrt.user.js
 // @match        https://www.torn.com/factions.php*
 // @include      https://www.torn.com/factions.php*
